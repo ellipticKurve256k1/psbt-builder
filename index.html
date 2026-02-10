@@ -472,8 +472,8 @@
           <div id="opReturnGroup" style="display:none;">
             <label for="opReturnMessage">OP_RETURN Message (text or hex)</label>
             <input type="text" id="opReturnMessage" placeholder="Enter text or hex (prefix with 0x)">
-            <div class="hint">Maximum 80 bytes. UTF-8 text is converted to hex automatically.</div>
-            <div id="opReturnByteStatus">0 / 80 bytes</div>
+            <div class="hint">Maximum 83 bytes. UTF-8 text is converted to hex automatically.</div>
+            <div id="opReturnByteStatus">0 / 83 bytes</div>
           </div>
 
           <div class="hidden-config" aria-hidden="true">
@@ -522,7 +522,7 @@
   </main>
   <script>
     (function () {
-      const maxBytes = 80;
+      const maxBytes = 83;
       const includeOpReturn = document.getElementById("includeOpReturn");
       const opReturnMessage = document.getElementById("opReturnMessage");
       const byteStatus = document.getElementById("opReturnByteStatus");
@@ -548,7 +548,7 @@
         const hasError = isEnabled && (tooLarge || !!state.error);
 
         if (!isEnabled) {
-          byteStatus.textContent = "0 / 80 bytes";
+          byteStatus.textContent = "0 / 83 bytes";
           byteStatus.classList.remove("error");
           opReturnMessage.classList.remove("error");
           createPsbtButton.disabled = false;
@@ -556,11 +556,11 @@
         }
 
         if (state.error) {
-          byteStatus.textContent = state.error + " (0 / 80 bytes)";
+          byteStatus.textContent = state.error + " (0 / 83 bytes)";
         } else if (tooLarge) {
-          byteStatus.textContent = state.bytes + " / 80 bytes (exceeds limit)";
+          byteStatus.textContent = state.bytes + " / 83 bytes (exceeds limit)";
         } else {
-          byteStatus.textContent = state.bytes + " / 80 bytes";
+          byteStatus.textContent = state.bytes + " / 83 bytes";
         }
 
         byteStatus.classList.toggle("error", hasError);
