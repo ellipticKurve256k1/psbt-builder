@@ -266,6 +266,22 @@
       color: var(--muted);
     }
 
+    #opReturnByteStatus {
+      margin-top: 0.38rem;
+      font-size: 0.82rem;
+      color: #9ec0df;
+    }
+
+    #opReturnByteStatus.error {
+      color: var(--danger);
+      font-weight: 600;
+    }
+
+    #opReturnMessage.error {
+      border-color: var(--danger);
+      box-shadow: 0 0 0 3px rgba(227, 106, 118, 0.18);
+    }
+
     .action-row {
       margin-top: 0.85rem;
       display: flex;
@@ -281,6 +297,13 @@
 
     #createPsbt:hover {
       background: linear-gradient(180deg, #1e8acf 0%, #116fb1 100%);
+    }
+
+    #createPsbt:disabled {
+      cursor: not-allowed;
+      opacity: 0.56;
+      border-color: #4a5d70;
+      background: linear-gradient(180deg, #3a4b5d 0%, #314251 100%);
     }
 
     #clearButton,
@@ -465,6 +488,7 @@
               <label for="opReturnMessage">OP_RETURN Message (text or hex)</label>
               <input type="text" id="opReturnMessage" placeholder="Enter text or hex (prefix with 0x)">
               <div class="hint">Maximum 80 bytes. UTF-8 text is converted to hex automatically.</div>
+              <div id="opReturnByteStatus">0 / 80 bytes</div>
             </div>
           </div>
 
@@ -511,5 +535,61 @@
       </aside>
     </section>
   </main>
+  <script>
+    (function () {
+      const maxBytes = 80;
+      const includeOpReturn = document.getElementById("includeOpReturn");
+      const opReturnMessage = document.getElementById("opReturnMessage");
+      const byteStatus = document.getElementById("opReturnByteStatus");
+      const createPsbtButton = document.getElementById("createPsbt");
+      const utf8Encoder = new TextEncoder();
+
+      function getByteState(value) {
+        if (value.startsWith("0x")) {
+          const hex = value.slice(2);
+          if (!/^[0-9a-fA-F]*$/.test(hex)) {
+            return { bytes: 0, error: "Invalid hex format" };
+          }
+          return { bytes: Math.floor(hex.length / 2), error: "" };
+        }
+        return { bytes: utf8Encoder.encode(value).length, error: "" };
+      }
+
+      function updateOpReturnState() {
+        const isEnabled = includeOpReturn.checked;
+        const value = opReturnMessage.value.trim();
+        const { bytes, error } = getByteState(value);
+        const tooLarge = bytes > maxBytes;
+        const hasError = isEnabled && (tooLarge || !!error);
+
+        if (!isEnabled) {
+          byteStatus.textContent = "0 / 80 bytes";
+          byteStatus.classList.remove("error");
+          opReturnMessage.classList.remove("error");
+          createPsbtButton.disabled = false;
+          return;
+        }
+
+        if (error) {
+          byteStatus.textContent = `${error} (0 / 80 bytes)`;
+        } else if (tooLarge) {
+          byteStatus.textContent = `${bytes} / 80 bytes (exceeds limit)`;
+        } else {
+          byteStatus.textContent = `${bytes} / 80 bytes`;
+        }
+
+        byteStatus.classList.toggle("error", hasError);
+        opReturnMessage.classList.toggle("error", hasError);
+        createPsbtButton.disabled = hasError;
+      }
+
+      includeOpReturn.addEventListener("change", updateOpReturnState);
+      opReturnMessage.addEventListener("input", updateOpReturnState);
+      document.getElementById("clearButton").addEventListener("click", () => {
+        setTimeout(updateOpReturnState, 0);
+      });
+      updateOpReturnState();
+    })();
+  </script>
 </body>
 </html>
