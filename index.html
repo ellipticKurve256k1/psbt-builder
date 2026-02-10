@@ -230,34 +230,31 @@
       font-size: 0.84rem;
     }
 
-    .option-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.7rem 0.8rem;
-      align-items: start;
+    .action-row {
+      margin-top: 0.2rem;
+      display: flex;
+      gap: 0.55rem;
     }
 
-    .toggle-box {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      min-height: 38px;
-      padding: 0.45rem 0.55rem;
+    .option-line {
+      margin-top: 0.65rem;
+      padding: 0.48rem 0.6rem;
       border: 1px solid var(--line);
       border-radius: 10px;
       background: rgba(31, 43, 57, 0.62);
-      grid-column: span 1;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
     }
 
-    .toggle-box label {
+    .option-line label {
       margin: 0;
       color: #c6d6e8;
       cursor: pointer;
     }
 
     #opReturnGroup {
-      grid-column: 1 / -1;
-      padding-top: 0.15rem;
+      margin-top: 0.62rem;
     }
 
     .hint {
@@ -282,12 +279,6 @@
       box-shadow: 0 0 0 3px rgba(227, 106, 118, 0.18);
     }
 
-    .action-row {
-      margin-top: 0.85rem;
-      display: flex;
-      gap: 0.55rem;
-    }
-
     #createPsbt {
       flex: 1;
       margin: 0;
@@ -299,11 +290,13 @@
       background: linear-gradient(180deg, #1e8acf 0%, #116fb1 100%);
     }
 
-    #createPsbt:disabled {
-      cursor: not-allowed;
-      opacity: 0.56;
-      border-color: #4a5d70;
-      background: linear-gradient(180deg, #3a4b5d 0%, #314251 100%);
+    #createPsbt,
+    #clearButton {
+      min-height: 42px;
+    }
+
+    .hidden-config {
+      display: none;
     }
 
     #clearButton,
@@ -359,8 +352,15 @@
     }
 
     #psbtDisplay {
-      margin-top: 0;
+      margin-top: 0.9rem;
       background: rgba(18, 27, 37, 0.94);
+    }
+
+    #psbtBase64 {
+      min-height: 260px;
+      width: 100%;
+      font-size: 0.9rem;
+      line-height: 1.45;
     }
 
     .result-actions {
@@ -393,10 +393,6 @@
       .topbar {
         flex-direction: column;
         align-items: stretch;
-      }
-
-      .option-grid {
-        grid-template-columns: 1fr;
       }
 
       .action-row,
@@ -460,41 +456,30 @@
       <aside class="right-column">
         <section class="card">
           <div class="card-head">
-            <h2>Transaction Options</h2>
-          </div>
-
-          <div class="option-grid">
-            <div class="toggle-box">
-              <input type="checkbox" id="includeChange" checked>
-              <label for="includeChange">Add change output</label>
-            </div>
-
-            <div class="toggle-box">
-              <input type="checkbox" id="includeOpReturn">
-              <label for="includeOpReturn">Add OP_RETURN message</label>
-            </div>
-
-            <div id="feeRateGroup">
-              <label for="feeRate">Fee Rate (sat/vB)</label>
-              <input type="number" id="feeRate" step="any" min="0" inputmode="decimal" placeholder="e.g. 10.5">
-            </div>
-
-            <div id="changeAddrGroup">
-              <label for="changeAddress">Change Address (must match network)</label>
-              <input type="text" id="changeAddress" placeholder="tb1q...">
-            </div>
-
-            <div id="opReturnGroup" style="display: none;">
-              <label for="opReturnMessage">OP_RETURN Message (text or hex)</label>
-              <input type="text" id="opReturnMessage" placeholder="Enter text or hex (prefix with 0x)">
-              <div class="hint">Maximum 80 bytes. UTF-8 text is converted to hex automatically.</div>
-              <div id="opReturnByteStatus">0 / 80 bytes</div>
-            </div>
+            <h2>Build</h2>
           </div>
 
           <div class="action-row">
             <button id="createPsbt">Create PSBT</button>
             <button id="clearButton">Clear</button>
+          </div>
+
+          <div class="option-line">
+            <input type="checkbox" id="includeOpReturn">
+            <label for="includeOpReturn">Add OP_RETURN message</label>
+          </div>
+
+          <div id="opReturnGroup" style="display:none;">
+            <label for="opReturnMessage">OP_RETURN Message (text or hex)</label>
+            <input type="text" id="opReturnMessage" placeholder="Enter text or hex (prefix with 0x)">
+            <div class="hint">Maximum 80 bytes. UTF-8 text is converted to hex automatically.</div>
+            <div id="opReturnByteStatus">0 / 80 bytes</div>
+          </div>
+
+          <div class="hidden-config" aria-hidden="true">
+            <input type="checkbox" id="includeChange" disabled>
+            <div id="feeRateGroup"><input type="number" id="feeRate" step="any" min="0" inputmode="decimal"></div>
+            <div id="changeAddrGroup"><input type="text" id="changeAddress"></div>
           </div>
         </section>
 
@@ -524,15 +509,15 @@
           <div id="feeCalc" style="display:none;"></div>
         </section>
 
-        <section id="psbtDisplay" class="card" style="display: none;">
-          <label for="psbtBase64">PSBT (Base64) - Copy this to your wallet</label>
-          <textarea id="psbtBase64" readonly rows="6"></textarea>
-          <div class="result-actions">
-            <button id="copyPsbtButton">Copy to Clipboard</button>
-            <button id="downloadPsbtButton">Download PSBT File</button>
-          </div>
-        </section>
       </aside>
+    </section>
+    <section id="psbtDisplay" class="card" style="display: none;">
+      <label for="psbtBase64">PSBT (Base64) - Copy this to your wallet</label>
+      <textarea id="psbtBase64" readonly rows="12"></textarea>
+      <div class="result-actions">
+        <button id="copyPsbtButton">Copy to Clipboard</button>
+        <button id="downloadPsbtButton">Download PSBT File</button>
+      </div>
     </section>
   </main>
   <script>
@@ -558,9 +543,9 @@
       function updateOpReturnState() {
         const isEnabled = includeOpReturn.checked;
         const value = opReturnMessage.value.trim();
-        const { bytes, error } = getByteState(value);
-        const tooLarge = bytes > maxBytes;
-        const hasError = isEnabled && (tooLarge || !!error);
+        const state = getByteState(value);
+        const tooLarge = state.bytes > maxBytes;
+        const hasError = isEnabled && (tooLarge || !!state.error);
 
         if (!isEnabled) {
           byteStatus.textContent = "0 / 80 bytes";
@@ -570,12 +555,12 @@
           return;
         }
 
-        if (error) {
-          byteStatus.textContent = `${error} (0 / 80 bytes)`;
+        if (state.error) {
+          byteStatus.textContent = state.error + " (0 / 80 bytes)";
         } else if (tooLarge) {
-          byteStatus.textContent = `${bytes} / 80 bytes (exceeds limit)`;
+          byteStatus.textContent = state.bytes + " / 80 bytes (exceeds limit)";
         } else {
-          byteStatus.textContent = `${bytes} / 80 bytes`;
+          byteStatus.textContent = state.bytes + " / 80 bytes";
         }
 
         byteStatus.classList.toggle("error", hasError);
@@ -585,7 +570,7 @@
 
       includeOpReturn.addEventListener("change", updateOpReturnState);
       opReturnMessage.addEventListener("input", updateOpReturnState);
-      document.getElementById("clearButton").addEventListener("click", () => {
+      document.getElementById("clearButton").addEventListener("click", function () {
         setTimeout(updateOpReturnState, 0);
       });
       updateOpReturnState();
