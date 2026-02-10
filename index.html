@@ -470,9 +470,9 @@
           </div>
 
           <div id="opReturnGroup" style="display:none;">
-            <label for="opReturnMessage">OP_RETURN Message (text or hex)</label>
-            <input type="text" id="opReturnMessage" placeholder="Enter text or hex (prefix with 0x)">
-            <div class="hint">Maximum 83 bytes. UTF-8 text is converted to hex automatically.</div>
+            <label for="opReturnMessage">OP_RETURN Message (text only)</label>
+            <input type="text" id="opReturnMessage" placeholder="Enter text message">
+            <div class="hint">Maximum 83 bytes. Hex input is disabled.</div>
             <div id="opReturnByteStatus">0 / 83 bytes</div>
           </div>
 
@@ -527,12 +527,8 @@
       const utf8Encoder = new TextEncoder();
 
       function getByteState(value) {
-        if (value.startsWith("0x")) {
-          const hex = value.slice(2);
-          if (!/^[0-9a-fA-F]*$/.test(hex)) {
-            return { bytes: 0, error: "Invalid hex format" };
-          }
-          return { bytes: Math.floor(hex.length / 2), error: "" };
+        if (/^0x/i.test(value)) {
+          return { bytes: 0, error: "Hex input disabled. Enter plain text." };
         }
         return { bytes: utf8Encoder.encode(value).length, error: "" };
       }
