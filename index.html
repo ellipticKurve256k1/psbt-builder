@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bitcoin PSBT Builder (Testnet)</title>
+  <style>
+    :root {
+      --bg: #0b1016;
+      --bg-2: #121923;
+      --panel: #161f2a;
+      --panel-2: #1b2733;
+      --line: #2b3948;
+      --line-2: #3c4d5f;
+      --text: #e6edf5;
+      --muted: #9dafc4;
+      --accent: #33b1ff;
+      --accent-2: #1b95e0;
+      --danger: #e36a76;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 1rem;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(900px 500px at 0% 0%, #1a2d40 0%, transparent 55%),
+        radial-gradient(900px 500px at 100% 0%, #102a3d 0%, transparent 50%),
+        var(--bg);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 0.35rem;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    .app-shell {
+      max-width: 1320px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: end;
+      padding: 0.9rem 1rem;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(21, 30, 41, 0.9);
+    }
+
+    .title-wrap h1 {
+      font-size: 1.7rem;
+      letter-spacing: 0.01em;
+    }
+
+    .title-wrap p {
+      margin-top: 0.25rem;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .network-wrap {
+      min-width: 220px;
+      max-width: 280px;
+      width: 100%;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      width: 100%;
+      margin-top: 0.42rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 0.95rem;
+      padding: 0.6rem 0.72rem;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: #8194ab;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus,
+    button:focus-visible {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(51, 177, 255, 0.23);
+    }
+
+    input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 130px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      border-color: var(--line-2);
+      background: linear-gradient(180deg, #314353 0%, #273544 100%);
+    }
+
+    button:hover {
+      border-color: #57718a;
+      background: linear-gradient(180deg, #3a4f62 0%, #2d3e50 100%);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.5fr) minmax(380px, 1fr);
+      gap: 0.9rem;
+      align-items: start;
+    }
+
+    .left-column,
+    .right-column {
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      min-width: 0;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(22, 31, 42, 0.9);
+      padding: 0.95rem;
+    }
+
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.7rem;
+      margin-bottom: 0.7rem;
+    }
+
+    .card-head h2 {
+      font-size: 1.07rem;
+      font-weight: 620;
+    }
+
+    .head-action {
+      width: auto;
+      margin: 0;
+      padding: 0.5rem 0.72rem;
+      border-style: dashed;
+      border-color: #4a627b;
+      background: rgba(46, 67, 90, 0.35);
+      color: #c8d9ec;
+      white-space: nowrap;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.55rem;
+      width: 100%;
+      align-items: center;
+      flex-wrap: nowrap;
+    }
+
+    .row input,
+    .row button {
+      width: auto;
+      margin-top: 0;
+    }
+
+    .row .grow {
+      flex: 1 1 280px;
+      min-width: 0;
+    }
+
+    button.remove {
+      width: 44px;
+      min-width: 44px;
+      flex: 0 0 44px;
+      margin-top: 0;
+      padding: 0.52rem 0;
+      border-radius: 9px;
+      line-height: 1;
+      font-size: 1rem;
+      border-color: #70444f;
+      background: linear-gradient(180deg, #603a45 0%, #492c35 100%);
+    }
+
+    button.remove:hover {
+      background: linear-gradient(180deg, #71444f 0%, #53323c 100%);
+    }
+
+    .script-label {
+      margin-top: 0.22rem;
+      color: var(--muted) !important;
+      font-size: 0.84rem;
+    }
+
+    .option-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.7rem 0.8rem;
+      align-items: start;
+    }
+
+    .toggle-box {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      min-height: 38px;
+      padding: 0.45rem 0.55rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(31, 43, 57, 0.62);
+      grid-column: span 1;
+    }
+
+    .toggle-box label {
+      margin: 0;
+      color: #c6d6e8;
+      cursor: pointer;
+    }
+
+    #opReturnGroup {
+      grid-column: 1 / -1;
+      padding-top: 0.15rem;
+    }
+
+    .hint {
+      margin-top: 0.28rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    .action-row {
+      margin-top: 0.85rem;
+      display: flex;
+      gap: 0.55rem;
+    }
+
+    #createPsbt {
+      flex: 1;
+      margin: 0;
+      border-color: #2493d8;
+      background: linear-gradient(180deg, #1779ba 0%, #0e639d 100%);
+    }
+
+    #createPsbt:hover {
+      background: linear-gradient(180deg, #1e8acf 0%, #116fb1 100%);
+    }
+
+    #clearButton,
+    #copyPsbtButton,
+    #downloadPsbtButton {
+      width: auto;
+      margin: 0;
+      padding: 0.52rem 0.9rem;
+    }
+
+    #balanceTracker {
+      background: rgba(20, 30, 40, 0.95);
+    }
+
+    .summary-title {
+      margin-bottom: 0.55rem;
+      font-size: 0.95rem;
+      color: #dce9f6;
+      font-weight: 700;
+    }
+
+    .summary-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 0.34rem;
+      font-size: 0.92rem;
+    }
+
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.9rem;
+    }
+
+    .summary-row strong {
+      font-weight: 700;
+    }
+
+    .summary-row.total {
+      margin-top: 0.16rem;
+      padding-top: 0.38rem;
+      border-top: 1px solid var(--line);
+    }
+
+    #availableBalance {
+      color: var(--accent);
+    }
+
+    #feeCalc {
+      min-height: 1.1rem;
+      color: #c4d4e7;
+      font-size: 0.9rem;
+    }
+
+    #psbtDisplay {
+      margin-top: 0;
+      background: rgba(18, 27, 37, 0.94);
+    }
+
+    .result-actions {
+      margin-top: 0.55rem;
+      display: flex;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+    }
+
+    .sortable-ghost {
+      opacity: 0.45;
+      background: #2c435a;
+    }
+
+    @media (max-width: 1050px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .network-wrap {
+        max-width: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        padding: 0.8rem;
+      }
+
+      .topbar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .option-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .action-row,
+      .result-actions {
+        flex-direction: column;
+      }
+
+      #clearButton,
+      #copyPsbtButton,
+      #downloadPsbtButton {
+        width: 100%;
+      }
+
+      .row {
+        flex-wrap: wrap;
+      }
+
+      .row .grow {
+        flex-basis: 100%;
+      }
+    }
+  </style>
+  <script type="module" crossorigin src="/assets/index-B6bb-5K_.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="title-wrap">
+        <h1>Bitcoin PSBT Builder</h1>
+        <p>Build unsigned PSBTs with a side-by-side workflow.</p>
+      </div>
+      <div class="network-wrap">
+        <label for="network">Network</label>
+        <select id="network">
+          <option value="mainnet">Mainnet</option>
+          <option value="testnet">Testnet4</option>
+          <option value="regtest">Regtest</option>
+        </select>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div class="left-column">
+        <section class="card">
+          <div class="card-head">
+            <h2>Inputs (UTXOs)</h2>
+            <button type="button" id="addInputButton" class="head-action">+ Add Input</button>
+          </div>
+          <div id="utxoContainer" class="stack"></div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <h2>Outputs</h2>
+            <button type="button" id="addOutputButton" class="head-action">+ Add Output</button>
+          </div>
+          <div id="outputContainer" class="stack"></div>
+        </section>
+      </div>
+
+      <aside class="right-column">
+        <section class="card">
+          <div class="card-head">
+            <h2>Transaction Options</h2>
+          </div>
+
+          <div class="option-grid">
+            <div class="toggle-box">
+              <input type="checkbox" id="includeChange" checked>
+              <label for="includeChange">Add change output</label>
+            </div>
+
+            <div class="toggle-box">
+              <input type="checkbox" id="includeOpReturn">
+              <label for="includeOpReturn">Add OP_RETURN message</label>
+            </div>
+
+            <div id="feeRateGroup">
+              <label for="feeRate">Fee Rate (sat/vB)</label>
+              <input type="number" id="feeRate" step="any" min="0" inputmode="decimal" placeholder="e.g. 10.5">
+            </div>
+
+            <div id="changeAddrGroup">
+              <label for="changeAddress">Change Address (must match network)</label>
+              <input type="text" id="changeAddress" placeholder="tb1q...">
+            </div>
+
+            <div id="opReturnGroup" style="display: none;">
+              <label for="opReturnMessage">OP_RETURN Message (text or hex)</label>
+              <input type="text" id="opReturnMessage" placeholder="Enter text or hex (prefix with 0x)">
+              <div class="hint">Maximum 80 bytes. UTF-8 text is converted to hex automatically.</div>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button id="createPsbt">Create PSBT</button>
+            <button id="clearButton">Clear</button>
+          </div>
+        </section>
+
+        <section id="balanceTracker" class="card">
+          <div class="summary-title">Balance Summary</div>
+          <div class="summary-grid">
+            <div class="summary-row">
+              <span>Total Inputs:</span>
+              <strong id="totalInputs">0 sats</strong>
+            </div>
+            <div class="summary-row">
+              <span>Total Outputs:</span>
+              <strong id="totalOutputs">0 sats</strong>
+            </div>
+            <div class="summary-row">
+              <span>Fee:</span>
+              <strong id="feeAmount">0 sats</strong>
+            </div>
+            <div class="summary-row total">
+              <span>Remaining:</span>
+              <strong id="availableBalance">0 sats</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div id="feeCalc" style="display:none;"></div>
+        </section>
+
+        <section id="psbtDisplay" class="card" style="display: none;">
+          <label for="psbtBase64">PSBT (Base64) - Copy this to your wallet</label>
+          <textarea id="psbtBase64" readonly rows="6"></textarea>
+          <div class="result-actions">
+            <button id="copyPsbtButton">Copy to Clipboard</button>
+            <button id="downloadPsbtButton">Download PSBT File</button>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>
