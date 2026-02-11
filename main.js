@@ -9,19 +9,6 @@ function getSelectedNetwork() {
   const net = document.getElementById("network").value;
   if (net === "mainnet") return bitcoin.networks.bitcoin;
   if (net === "testnet") return bitcoin.networks.testnet;
-  if (net === "regtest") {
-    return {
-      messagePrefix: "\x18Bitcoin Signed Message:\n",
-      bech32: "bcrt",
-      bip32: {
-        public: 0x043587cf,
-        private: 0x04358394,
-      },
-      pubKeyHash: 0x6f,
-      scriptHash: 0xc4,
-      wif: 0xef,
-    };
-  }
   return bitcoin.networks.testnet;
 }
 
@@ -60,6 +47,186 @@ function hexToBytes(hex) {
     bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
   }
   return bytes;
+}
+
+function formatSatsToBtcString(sats) {
+  return (Number(sats) / 1e8).toFixed(8);
+}
+
+function bytesToHex(bytes) {
+  return Buffer.from(bytes).toString("hex");
+}
+
+function setImportStatus(message, isError = false) {
+  const status = document.getElementById("importTxStatus");
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+}
+
+function inferInputScriptPubKey(input, network) {
+  const isBytes = (value) => value instanceof Uint8Array;
+  const witness = input.witness || [];
+
+  if (witness.length >= 2) {
+    const maybePubkey = witness[witness.length - 1];
+    if (isBytes(maybePubkey) && maybePubkey.length === 33) {
+      try {
+        const output = bitcoin.payments.p2wpkh({
+          pubkey: Buffer.from(maybePubkey),
+          network,
+        }).output;
+        if (output) return bytesToHex(output);
+      } catch {}
+    }
+  }
+
+  const scriptSig = input.script || new Uint8Array();
+  const scriptChunks = bitcoin.script.decompile(scriptSig) || [];
+
+  if (scriptChunks.length >= 2) {
+    const maybePubkey = scriptChunks[scriptChunks.length - 1];
+    if (isBytes(maybePubkey) && (maybePubkey.length === 33 || maybePubkey.length === 65)) {
+      try {
+        const output = bitcoin.payments.p2pkh({
+          pubkey: Buffer.from(maybePubkey),
+          network,
+        }).output;
+        if (output) return bytesToHex(output);
+      } catch {}
+    }
+  }
+
+  if (scriptChunks.length === 1 && isBytes(scriptChunks[0])) {
+    try {
+      const output = bitcoin.payments.p2sh({
+        redeem: { output: Buffer.from(scriptChunks[0]) },
+        network,
+      }).output;
+      if (output) return bytesToHex(output);
+    } catch {}
+  }
+
+  return "";
+}
+
+function parseOpReturnText(script) {
+  try {
+    const chunks = bitcoin.script.decompile(script);
+    if (!chunks || chunks.length < 2 || chunks[0] !== bitcoin.opcodes.OP_RETURN) return null;
+
+    const dataChunk = chunks.find((chunk, index) => index > 0 && chunk instanceof Uint8Array);
+    if (!(dataChunk instanceof Uint8Array)) return { isText: false, text: "", hex: "" };
+
+    const data = Buffer.from(dataChunk);
+    if (data.length > 83) return { isText: false, text: "", hex: data.toString("hex") };
+
+    const text = data.toString("utf8");
+    const isText = Buffer.from(text, "utf8").equals(data);
+    return { isText, text, hex: data.toString("hex") };
+  } catch {
+    return null;
+  }
+}
+
+function loadTransactionHex(rawHex) {
+  const cleaned = rawHex.trim().replace(/\s+/g, "");
+
+  if (!cleaned) {
+    setImportStatus("Please enter transaction hex.", true);
+    return;
+  }
+  if (!/^[0-9a-fA-F]+$/.test(cleaned) || cleaned.length % 2 !== 0) {
+    setImportStatus("Invalid hex format.", true);
+    return;
+  }
+
+  let tx;
+  try {
+    tx = bitcoin.Transaction.fromHex(cleaned);
+  } catch (error) {
+    setImportStatus(`Invalid transaction hex: ${error.message}`, true);
+    return;
+  }
+
+  const network = getSelectedNetwork();
+  const utxoContainer = document.getElementById("utxoContainer");
+  const outputContainer = document.getElementById("outputContainer");
+  const includeOpReturn = document.getElementById("includeOpReturn");
+  const opReturnMessage = document.getElementById("opReturnMessage");
+
+  utxoContainer.innerHTML = "";
+  outputContainer.innerHTML = "";
+  document.getElementById("psbtDisplay").style.display = "none";
+  document.getElementById("psbtBase64").value = "";
+  window.currentPsbt = null;
+
+  includeOpReturn.checked = false;
+  opReturnMessage.value = "";
+  includeOpReturn.dispatchEvent(new Event("change"));
+  opReturnMessage.dispatchEvent(new Event("input"));
+
+  setImportStatus("Parsing transaction...");
+
+  let unresolvedInputScriptCount = 0;
+
+  for (const txIn of tx.ins) {
+    const txidBigEndian = Buffer.from(txIn.hash).reverse().toString("hex");
+    const scriptPubKeyHex = inferInputScriptPubKey(txIn, network);
+    if (!scriptPubKeyHex) unresolvedInputScriptCount += 1;
+
+    addInput(undefined, txidBigEndian, String(txIn.index), "", scriptPubKeyHex);
+  }
+
+  let loadedOutputCount = 0;
+  let textOpReturnLoaded = false;
+  let skippedOpReturnCount = 0;
+  for (const txOut of tx.outs) {
+    const parsedOpReturn = parseOpReturnText(txOut.script);
+    if (parsedOpReturn) {
+      if (!textOpReturnLoaded && parsedOpReturn.isText && parsedOpReturn.text.length > 0) {
+        includeOpReturn.checked = true;
+        opReturnMessage.value = parsedOpReturn.text;
+        includeOpReturn.dispatchEvent(new Event("change"));
+        opReturnMessage.dispatchEvent(new Event("input"));
+        textOpReturnLoaded = true;
+      } else {
+        skippedOpReturnCount += 1;
+      }
+      continue;
+    }
+
+    let address = "";
+    try {
+      address = bitcoin.address.fromOutputScript(txOut.script, network);
+    } catch {}
+
+    addOutput(undefined, address, formatSatsToBtcString(txOut.value));
+    loadedOutputCount += 1;
+  }
+
+  if (loadedOutputCount === 0) addOutput();
+
+  refreshAllScriptLabels();
+  updateFeeCalc();
+
+  const statusLines = [
+    `Loaded txid: ${tx.getId()}`,
+    `Inputs: ${tx.ins.length} (txid converted little-endian -> big-endian)`,
+    `Outputs: ${tx.outs.length} (standard outputs loaded: ${loadedOutputCount})`,
+    "Input value is not present in raw tx hex and must be entered manually.",
+  ];
+  if (unresolvedInputScriptCount > 0) {
+    statusLines.push(
+      `Could not infer scriptPubKey for ${unresolvedInputScriptCount} input(s); fill manually.`
+    );
+  }
+  if (skippedOpReturnCount > 0) {
+    statusLines.push(
+      `Skipped ${skippedOpReturnCount} OP_RETURN/non-text output(s) not representable in text mode.`
+    );
+  }
+  setImportStatus(statusLines.join("\n"));
 }
 
 function decodeAddressFromScript(hex, network) {
@@ -113,8 +280,16 @@ function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "") {
   const scriptInput = div.querySelector(".script-input");
   const labelSpan = div.querySelector(".script-label span");
   const updateLabel = () => {
+    const scriptHex = scriptInput.value.trim();
+    if (!scriptHex) {
+      labelSpan.textContent = "-";
+      colourField(scriptInput, false);
+      updateFeeCalc();
+      return;
+    }
+
     const network = getSelectedNetwork();
-    const address = decodeAddressFromScript(scriptInput.value.trim(), network);
+    const address = decodeAddressFromScript(scriptHex, network);
     labelSpan.textContent = address || "Invalid scriptPubKey";
     colourField(scriptInput, !!address);
     updateFeeCalc();
@@ -302,6 +477,26 @@ document.getElementById("createPsbt").onclick = () => {
 document.getElementById("addInputButton").addEventListener("click", addInput);
 document.getElementById("addOutputButton").addEventListener("click", addOutput);
 
+const importTxToggleButton = document.getElementById("importTxToggleButton");
+const importTxSection = document.getElementById("importTxSection");
+const importTxHex = document.getElementById("importTxHex");
+const loadTxHexButton = document.getElementById("loadTxHexButton");
+const closeImportTxButton = document.getElementById("closeImportTxButton");
+
+function toggleImportSection(forceOpen) {
+  const isHidden = getComputedStyle(importTxSection).display === "none";
+  const shouldOpen =
+    typeof forceOpen === "boolean" ? forceOpen : isHidden;
+  importTxSection.style.display = shouldOpen ? "block" : "none";
+  importTxToggleButton.textContent = shouldOpen
+    ? "Hide Import Transaction Hex"
+    : "Import Transaction Hex";
+}
+
+importTxToggleButton.addEventListener("click", () => toggleImportSection());
+closeImportTxButton.addEventListener("click", () => toggleImportSection(false));
+loadTxHexButton.addEventListener("click", () => loadTransactionHex(importTxHex.value));
+
 document.getElementById("copyPsbtButton").onclick = () => {
   const psbtText = document.getElementById("psbtBase64");
   psbtText.select();
@@ -333,6 +528,7 @@ document.getElementById("clearButton").onclick = () => {
   document.getElementById("psbtDisplay").style.display = "none";
   document.getElementById("psbtBase64").value = "";
   window.currentPsbt = null;
+  setImportStatus("");
   addInput();
   addOutput();
   updateFeeCalc();
