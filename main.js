@@ -1,7 +1,6 @@
 import { Buffer } from "buffer";
 import * as bitcoin from "bitcoinjs-lib";
 import * as ecc from "@bitcoin-js/tiny-secp256k1-asmjs";
-import Sortable from "sortablejs";
 
 window.Buffer = Buffer;
 bitcoin.initEccLib(ecc);
@@ -350,18 +349,6 @@ changeAddrInput.addEventListener("input", validateChangeAddr);
 validateChangeAddr();
 
 document.getElementById("network").addEventListener("change", refreshAllScriptLabels);
-
-new Sortable(document.getElementById("utxoContainer"), {
-  animation: 150,
-  handle: null,
-  ghostClass: "sortable-ghost",
-});
-
-new Sortable(document.getElementById("outputContainer"), {
-  animation: 150,
-  handle: null,
-  ghostClass: "sortable-ghost",
-});
 
 function updateFeeCalc() {
   const useChange = includeChangeCheckbox.checked;

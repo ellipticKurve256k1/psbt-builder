@@ -27,7 +27,6 @@
   "dependencies": {
     "@bitcoin-js/tiny-secp256k1-asmjs": "^2.2.4",
     "bitcoinjs-lib": "^7.0.1",
-    "buffer": "^6.0.3",
-    "sortablejs": "^1.15.6"
+    "buffer": "^6.0.3"
   }
 }
