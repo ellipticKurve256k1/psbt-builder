@@ -263,6 +263,17 @@
       color: var(--muted);
     }
 
+    .input-warning {
+      margin-top: 0.36rem;
+      margin-bottom: 0.28rem;
+      padding: 0.48rem 0.62rem;
+      border-radius: 9px;
+      border: 1px solid #8b3f48;
+      background: rgba(227, 106, 118, 0.12);
+      color: #ffd5da;
+      font-weight: 600;
+    }
+
     #opReturnByteStatus {
       margin-top: 0.38rem;
       font-size: 0.82rem;
@@ -435,6 +446,7 @@
             <h2>Inputs (UTXOs)</h2>
             <button type="button" id="addInputButton" class="head-action">+ Add Input</button>
           </div>
+          <div class="hint input-warning">Only P2WPKH as input is supported.</div>
           <div id="utxoContainer" class="stack"></div>
         </section>
 
