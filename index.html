@@ -77,24 +77,6 @@
       font-size: 0.92rem;
     }
 
-    .title-actions {
-      margin-top: 0.6rem;
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-    }
-
-    .top-action {
-      width: auto;
-      margin: 0;
-      padding: 0.5rem 0.72rem;
-      border-style: dashed;
-      border-color: #4a627b;
-      background: rgba(46, 67, 90, 0.35);
-      color: #c8d9ec;
-      white-space: nowrap;
-    }
-
     .network-wrap {
       min-width: 220px;
       max-width: 280px;
@@ -374,44 +356,6 @@
       background: rgba(18, 27, 37, 0.94);
     }
 
-    #importTxSection {
-      display: none;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(22, 31, 42, 0.9);
-      padding: 0.95rem;
-    }
-
-    #importTxHex {
-      min-height: 220px;
-    }
-
-    .import-actions {
-      margin-top: 0.6rem;
-      display: flex;
-      gap: 0.55rem;
-      flex-wrap: wrap;
-    }
-
-    #loadTxHexButton,
-    #closeImportTxButton {
-      width: auto;
-      margin: 0;
-      padding: 0.52rem 0.9rem;
-    }
-
-    #importTxStatus {
-      margin-top: 0.55rem;
-      font-size: 0.87rem;
-      color: #c4d4e7;
-      min-height: 1.2rem;
-      white-space: pre-wrap;
-    }
-
-    #importTxStatus.error {
-      color: var(--danger);
-    }
-
     #psbtBase64 {
       min-height: 260px;
       width: 100%;
@@ -447,16 +391,13 @@
       }
 
       .action-row,
-      .result-actions,
-      .import-actions {
+      .result-actions {
         flex-direction: column;
       }
 
       #clearButton,
       #copyPsbtButton,
-      #downloadPsbtButton,
-      #loadTxHexButton,
-      #closeImportTxButton {
+      #downloadPsbtButton {
         width: 100%;
       }
 
@@ -477,9 +418,6 @@
       <div class="title-wrap">
         <h1>Bitcoin PSBT Builder</h1>
         <p>Build unsigned PSBTs with a side-by-side workflow.</p>
-        <div class="title-actions">
-          <button type="button" id="importTxToggleButton" class="top-action">Import Transaction Hex</button>
-        </div>
       </div>
       <div class="network-wrap">
         <label for="network">Network</label>
@@ -489,16 +427,6 @@
         </select>
       </div>
     </header>
-
-    <section id="importTxSection">
-      <label for="importTxHex">Transaction Hex</label>
-      <textarea id="importTxHex" placeholder="Paste raw transaction hex"></textarea>
-      <div class="import-actions">
-        <button type="button" id="loadTxHexButton">Load</button>
-        <button type="button" id="closeImportTxButton">Close</button>
-      </div>
-      <div id="importTxStatus"></div>
-    </section>
 
     <section class="workspace">
       <div class="left-column">
