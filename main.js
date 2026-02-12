@@ -40,6 +40,7 @@ function colourField(el, isValid) {
 
 function hexToBytes(hex) {
   if (!hex || typeof hex !== "string") return new Uint8Array();
+  if (!/^[0-9a-fA-F]+$/.test(hex)) throw new Error("Invalid hex string");
   if (hex.length % 2 !== 0) throw new Error("Invalid hex string");
 
   const bytes = new Uint8Array(hex.length / 2);
@@ -49,18 +50,15 @@ function hexToBytes(hex) {
   return bytes;
 }
 
-function decodeAddressFromScript(hex, network) {
+function isP2wpkhScript(script) {
+  return script.length === 22 && script[0] === 0x00 && script[1] === 0x14;
+}
+
+function decodeP2wpkhAddressFromScript(hex, network) {
   try {
     const script = hexToBytes(hex);
+    if (!isP2wpkhScript(script)) return null;
     return bitcoin.address.fromOutputScript(script, network);
-  } catch {}
-
-  try {
-    const bytes = hexToBytes(hex);
-    if (bytes.length === 34 && bytes[0] === 0x51 && bytes[1] === 0x20) {
-      const pubkey = bytes.slice(2);
-      return bitcoin.address.toBech32(pubkey, 1, network.bech32);
-    }
   } catch {}
 
   return null;
@@ -83,10 +81,10 @@ function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "") {
     </div>
 
     <div class="row" style="margin-top:0.4rem;">
-      <input class="grow script-input" placeholder="scriptPubKey (hex)" value="${scriptPubKey}">
+      <input class="grow script-input" placeholder="scriptPubKey (hex, p2wpkh only)" value="${scriptPubKey}">
     </div>
     <div class="script-label" style="font-size:0.85rem;color:#555;margin-top:0.2rem;">
-      Address: <span>-</span>
+      P2WPKH Address: <span>-</span>
     </div>
   `;
 
@@ -109,8 +107,8 @@ function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "") {
     }
 
     const network = getSelectedNetwork();
-    const address = decodeAddressFromScript(scriptHex, network);
-    labelSpan.textContent = address || "Invalid scriptPubKey";
+    const address = decodeP2wpkhAddressFromScript(scriptHex, network);
+    labelSpan.textContent = address || "Invalid scriptPubKey (p2wpkh only)";
     colourField(scriptInput, !!address);
     updateFeeCalc();
   };
@@ -167,12 +165,17 @@ function createPsbtFromInputs(utxos, outputs, fee, changeAddress, opReturnData) 
 
   let totalInput = 0;
   for (const utxo of utxos) {
+    const scriptBytes = hexToBytes(utxo.scriptPubKey);
+    if (!isP2wpkhScript(scriptBytes)) {
+      throw new Error("Only P2WPKH input scriptPubKey is supported.");
+    }
+
     psbt.addInput({
       hash: utxo.txid,
       index: utxo.vout,
       sequence: 0xfffffffd,
       witnessUtxo: {
-        script: hexToBytes(utxo.scriptPubKey),
+        script: scriptBytes,
         value: BigInt(utxo.value),
       },
     });
@@ -219,6 +222,15 @@ function downloadPsbt(psbt) {
 
 document.getElementById("createPsbt").onclick = () => {
   try {
+    const network = getSelectedNetwork();
+    refreshAllScriptLabels();
+    const hasInvalidInputScript = Array.from(document.querySelectorAll(".script-input")).some(
+      (input) => !decodeP2wpkhAddressFromScript(input.value.trim(), network)
+    );
+    if (hasInvalidInputScript) {
+      return alert("Only P2WPKH input scriptPubKey is allowed.");
+    }
+
     const utxos = Array.from(document.getElementById("utxoContainer").children).map(
       (row) => {
         const [txidInput, voutInput, valueInput, scriptInput] = row.querySelectorAll("input");
@@ -244,7 +256,6 @@ document.getElementById("createPsbt").onclick = () => {
     const includeChange = includeChangeCheckbox.checked;
     const feeRate = parseFloat(document.getElementById("feeRate").value);
     const changeAddress = document.getElementById("changeAddress").value.trim();
-    const network = getSelectedNetwork();
 
     let opReturnData = null;
     if (document.getElementById("includeOpReturn").checked) {
