@@ -97,6 +97,31 @@ function isValidUint32Hex(rawValue) {
   }
 }
 
+function parseTxVersion(rawValue) {
+  const trimmed = String(rawValue || "").trim();
+  if (!trimmed) {
+    throw new Error("Version is required.");
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error("Version must be a decimal integer.");
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 0xffffffff) {
+    throw new Error("Version out of range.");
+  }
+  return parsed >>> 0;
+}
+
+function isValidTxVersion(rawValue) {
+  try {
+    parseTxVersion(rawValue);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function optionToSighashType(optionValue, allowInherit = false) {
   if (allowInherit && optionValue === "INHERIT") return null;
   switch (optionValue) {
@@ -276,10 +301,12 @@ function createPsbtFromInputs(
   changeAddress,
   opReturnData,
   sighashType = undefined,
-  locktime = 0
+  locktime = 0,
+  txVersion = 2
 ) {
   const network = getSelectedNetwork();
   const psbt = new bitcoin.Psbt({ network });
+  psbt.setVersion(txVersion);
   psbt.setLocktime(locktime);
 
   let totalInput = 0;
@@ -514,6 +541,7 @@ function parsePsbtToFormData(psbt) {
     inputs: parsedInputs,
     outputs,
     opReturnMessage,
+    txVersion: String(psbt.version),
     locktimeHex: formatUint32Hex(psbt.locktime),
     globalSighashOption,
     warnings,
@@ -545,6 +573,7 @@ function parseRawTransactionToFormData(tx) {
     inputs,
     outputs,
     opReturnMessage,
+    txVersion: String(tx.version >>> 0),
     locktimeHex: formatUint32Hex(tx.locktime),
     globalSighashOption: "DEFAULT",
     warnings,
@@ -580,6 +609,8 @@ function populateFormWithParsedData(parsed) {
   }
 
   document.getElementById("sighashType").value = parsed.globalSighashOption || "DEFAULT";
+  document.getElementById("txVersion").value = parsed.txVersion || "2";
+  document.getElementById("txVersion").dispatchEvent(new Event("input"));
   document.getElementById("txLocktime").value = parsed.locktimeHex || "00000000";
   document.getElementById("txLocktime").dispatchEvent(new Event("input"));
 
@@ -676,6 +707,7 @@ document.getElementById("createPsbt").onclick = () => {
     const feeRate = parseFloat(document.getElementById("feeRate").value);
     const changeAddress = document.getElementById("changeAddress").value.trim();
     const sighashType = getSelectedSighashType();
+    const txVersion = parseTxVersion(document.getElementById("txVersion").value);
     const txLocktime = parseUint32Hex(document.getElementById("txLocktime").value, "Locktime");
 
     let opReturnData = null;
@@ -711,7 +743,8 @@ document.getElementById("createPsbt").onclick = () => {
         changeAddress,
         opReturnData,
         sighashType,
-        txLocktime
+        txLocktime,
+        txVersion
       );
       const vsize = estimateVirtualSize(temp);
       fee = Math.ceil(feeRate * vsize);
@@ -722,13 +755,23 @@ document.getElementById("createPsbt").onclick = () => {
         changeAddress,
         opReturnData,
         sighashType,
-        txLocktime
+        txLocktime,
+        txVersion
       );
     } else {
       const totalIn = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
       const totalOut = outputs.reduce((sum, output) => sum + output.value, 0);
       fee = totalIn - totalOut;
-      psbt = createPsbtFromInputs(utxos, outputs, 0, "", opReturnData, sighashType, txLocktime);
+      psbt = createPsbtFromInputs(
+        utxos,
+        outputs,
+        0,
+        "",
+        opReturnData,
+        sighashType,
+        txLocktime,
+        txVersion
+      );
       feeCalc.textContent = `Transaction fee: ${(fee / 1e8).toFixed(8)} BTC`;
     }
 
@@ -784,6 +827,8 @@ document.getElementById("clearButton").onclick = () => {
   document.getElementById("importData").value = "";
   document.getElementById("feeRate").value = "";
   document.getElementById("changeAddress").value = "";
+  document.getElementById("txVersion").value = "2";
+  document.getElementById("txVersion").dispatchEvent(new Event("input"));
   document.getElementById("txLocktime").value = "00000000";
   document.getElementById("txLocktime").dispatchEvent(new Event("input"));
   document.getElementById("includeOpReturn").checked = false;
@@ -810,10 +855,17 @@ function validateTxLocktime() {
   colourField(txLocktimeInput, isValidUint32Hex(txLocktimeInput.value.trim()));
 }
 
+const txVersionInput = document.getElementById("txVersion");
+function validateTxVersion() {
+  colourField(txVersionInput, isValidTxVersion(txVersionInput.value.trim()));
+}
+
 changeAddrInput.addEventListener("input", validateChangeAddr);
 txLocktimeInput.addEventListener("input", validateTxLocktime);
+txVersionInput.addEventListener("input", validateTxVersion);
 validateChangeAddr();
 validateTxLocktime();
+validateTxVersion();
 
 document.getElementById("network").addEventListener("change", refreshAllScriptLabels);
 
@@ -863,6 +915,7 @@ function updateFeeCalc() {
       try {
         const changeAddress = document.getElementById("changeAddress").value.trim();
         const sighashType = getSelectedSighashType();
+        const txVersion = parseTxVersion(document.getElementById("txVersion").value);
         const txLocktime = parseUint32Hex(document.getElementById("txLocktime").value, "Locktime");
         const temp = createPsbtFromInputs(
           utxos,
@@ -871,7 +924,8 @@ function updateFeeCalc() {
           changeAddress,
           null,
           sighashType,
-          txLocktime
+          txLocktime,
+          txVersion
         );
         const vsize = estimateVirtualSize(temp);
         fee = Math.ceil(feeRate * vsize);
@@ -926,6 +980,7 @@ document.getElementById("utxoContainer").addEventListener("input", updateFeeCalc
 document.getElementById("outputContainer").addEventListener("input", updateFeeCalc);
 document.getElementById("feeRate").addEventListener("input", updateFeeCalc);
 document.getElementById("changeAddress").addEventListener("input", updateFeeCalc);
+document.getElementById("txVersion").addEventListener("input", updateFeeCalc);
 document.getElementById("txLocktime").addEventListener("input", updateFeeCalc);
 document.getElementById("sighashType").addEventListener("change", updateFeeCalc);
 

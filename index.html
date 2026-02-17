@@ -504,6 +504,10 @@
           </select>
           <div class="hint">Applies the same sighash type to every PSBT input.</div>
 
+          <label for="txVersion" style="margin-top:0.9rem;">Transaction Version</label>
+          <input type="text" id="txVersion" value="2" placeholder="2">
+          <div class="hint">Decimal uint32. Imported version is restored here.</div>
+
           <label for="txLocktime" style="margin-top:0.9rem;">Transaction Locktime (hex)</label>
           <input type="text" id="txLocktime" value="00000000" placeholder="00000000">
           <div class="hint">8-hex uint32. Imported locktime is restored here.</div>
