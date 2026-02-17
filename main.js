@@ -64,6 +64,39 @@ function decodeP2wpkhAddressFromScript(hex, network) {
   return null;
 }
 
+function formatUint32Hex(value) {
+  return Number(value >>> 0).toString(16).padStart(8, "0");
+}
+
+function parseUint32Hex(rawValue, fieldName) {
+  const trimmed = String(rawValue || "").trim();
+  const withoutPrefix = trimmed.startsWith("0x") || trimmed.startsWith("0X")
+    ? trimmed.slice(2)
+    : trimmed;
+
+  if (!withoutPrefix) {
+    throw new Error(`${fieldName} is required.`);
+  }
+  if (!/^[0-9a-fA-F]{1,8}$/.test(withoutPrefix)) {
+    throw new Error(`${fieldName} must be 1-8 hex digits.`);
+  }
+
+  const parsed = Number.parseInt(withoutPrefix, 16);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 0xffffffff) {
+    throw new Error(`${fieldName} out of range.`);
+  }
+  return parsed >>> 0;
+}
+
+function isValidUint32Hex(rawValue) {
+  try {
+    parseUint32Hex(rawValue, "value");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function optionToSighashType(optionValue, allowInherit = false) {
   if (allowInherit && optionValue === "INHERIT") return null;
   switch (optionValue) {
@@ -110,20 +143,29 @@ function getSelectedSighashType() {
   return optionToSighashType(document.getElementById("sighashType").value);
 }
 
-function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "", inputSighash = "INHERIT") {
+function addInput(
+  _,
+  txid = "",
+  vout = "",
+  sequenceHex = "fffffffd",
+  value = "",
+  scriptPubKey = "",
+  inputSighash = "INHERIT"
+) {
   const div = document.createElement("div");
   div.setAttribute("data-utxo", "");
   div.style.marginBottom = "1rem";
 
   div.innerHTML = `
     <div class="row">
-      <input class="grow" placeholder="txid" value="${txid}">
+      <input class="grow txid-input" placeholder="txid" value="${txid}">
       <button type="button" class="remove">✕</button>
     </div>
 
     <div class="row" style="margin-top:0.4rem;">
-      <input placeholder="vout" value="${vout}" style="width:80px;">
-      <input placeholder="value (BTC)" value="${value}" style="width:170px;">
+      <input class="vout-input" placeholder="vout" value="${vout}" style="width:80px;">
+      <input class="sequence-input" placeholder="nSequence (hex)" value="${sequenceHex}" style="width:150px;">
+      <input class="value-input" placeholder="value (BTC)" value="${value}" style="width:170px;">
     </div>
 
     <div class="row" style="margin-top:0.4rem;">
@@ -155,6 +197,7 @@ function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "", inputS
   });
 
   const scriptInput = div.querySelector(".script-input");
+  const sequenceInput = div.querySelector(".sequence-input");
   const labelSpan = div.querySelector(".script-label span");
   const updateLabel = () => {
     const scriptHex = scriptInput.value.trim();
@@ -172,10 +215,17 @@ function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "", inputS
     updateFeeCalc();
   };
 
+  const updateSequenceLabel = () => {
+    colourField(sequenceInput, isValidUint32Hex(sequenceInput.value.trim()));
+    updateFeeCalc();
+  };
+
   scriptInput.addEventListener("input", updateLabel);
+  sequenceInput.addEventListener("input", updateSequenceLabel);
   div.querySelector(".input-sighash").addEventListener("change", updateFeeCalc);
   updateLabel();
-  div.querySelectorAll("input")[2].addEventListener("input", updateFeeCalc);
+  updateSequenceLabel();
+  div.querySelector(".value-input").addEventListener("input", updateFeeCalc);
 }
 
 function addOutput(_, address = "", value = "") {
@@ -225,13 +275,15 @@ function createPsbtFromInputs(
   fee,
   changeAddress,
   opReturnData,
-  sighashType = undefined
+  sighashType = undefined,
+  locktime = 0
 ) {
   const network = getSelectedNetwork();
   const psbt = new bitcoin.Psbt({ network });
+  psbt.setLocktime(locktime);
 
   let totalInput = 0;
-  for (const utxo of utxos) {
+  for (const [inputIndex, utxo] of utxos.entries()) {
     const scriptBytes = hexToBytes(utxo.scriptPubKey);
     if (!isP2wpkhScript(scriptBytes)) {
       throw new Error("Only P2WPKH input scriptPubKey is supported.");
@@ -240,11 +292,15 @@ function createPsbtFromInputs(
       utxo.inputSighashOption === "INHERIT" || utxo.inputSighashOption === undefined
         ? sighashType
         : utxo.sighashType;
+    const sequence = parseUint32Hex(
+      utxo.sequenceHex === undefined ? "fffffffd" : utxo.sequenceHex,
+      `Input #${inputIndex} nSequence`
+    );
 
     const inputData = {
       hash: utxo.txid,
       index: utxo.vout,
-      sequence: 0xfffffffd,
+      sequence,
       witnessUtxo: {
         script: scriptBytes,
         value: BigInt(utxo.value),
@@ -439,6 +495,7 @@ function parsePsbtToFormData(psbt) {
     parsedInputs.push({
       txid: inputHashToTxid(txInput.hash),
       vout: String(txInput.index),
+      sequenceHex: formatUint32Hex(txInput.sequence),
       value,
       scriptPubKey,
       inputSighashOption,
@@ -457,6 +514,7 @@ function parsePsbtToFormData(psbt) {
     inputs: parsedInputs,
     outputs,
     opReturnMessage,
+    locktimeHex: formatUint32Hex(psbt.locktime),
     globalSighashOption,
     warnings,
   };
@@ -471,6 +529,7 @@ function parseRawTransactionToFormData(tx) {
   const inputs = tx.ins.map((input) => ({
     txid: inputHashToTxid(input.hash),
     vout: String(input.index),
+    sequenceHex: formatUint32Hex(input.sequence),
     value: "",
     scriptPubKey: "",
     inputSighashOption: "INHERIT",
@@ -486,6 +545,7 @@ function parseRawTransactionToFormData(tx) {
     inputs,
     outputs,
     opReturnMessage,
+    locktimeHex: formatUint32Hex(tx.locktime),
     globalSighashOption: "DEFAULT",
     warnings,
   };
@@ -503,6 +563,7 @@ function populateFormWithParsedData(parsed) {
         null,
         input.txid,
         input.vout,
+        input.sequenceHex || "fffffffd",
         input.value,
         input.scriptPubKey,
         input.inputSighashOption || "INHERIT"
@@ -519,6 +580,8 @@ function populateFormWithParsedData(parsed) {
   }
 
   document.getElementById("sighashType").value = parsed.globalSighashOption || "DEFAULT";
+  document.getElementById("txLocktime").value = parsed.locktimeHex || "00000000";
+  document.getElementById("txLocktime").dispatchEvent(new Event("input"));
 
   const includeOpReturn = document.getElementById("includeOpReturn");
   const opReturnMessage = document.getElementById("opReturnMessage");
@@ -580,12 +643,17 @@ document.getElementById("createPsbt").onclick = () => {
 
     const utxos = Array.from(document.getElementById("utxoContainer").children).map(
       (row) => {
-        const [txidInput, voutInput, valueInput, scriptInput] = row.querySelectorAll("input");
+        const txidInput = row.querySelector(".txid-input");
+        const voutInput = row.querySelector(".vout-input");
+        const sequenceInput = row.querySelector(".sequence-input");
+        const valueInput = row.querySelector(".value-input");
+        const scriptInput = row.querySelector(".script-input");
         const inputSighashOption = row.querySelector(".input-sighash").value;
         const maybeInputSighash = optionToSighashType(inputSighashOption, true);
         return {
           txid: txidInput.value.trim(),
           vout: parseInt(voutInput.value, 10),
+          sequenceHex: sequenceInput.value.trim(),
           value: Math.round(parseFloat(valueInput.value) * 1e8),
           scriptPubKey: scriptInput.value.trim(),
           inputSighashOption,
@@ -608,6 +676,7 @@ document.getElementById("createPsbt").onclick = () => {
     const feeRate = parseFloat(document.getElementById("feeRate").value);
     const changeAddress = document.getElementById("changeAddress").value.trim();
     const sighashType = getSelectedSighashType();
+    const txLocktime = parseUint32Hex(document.getElementById("txLocktime").value, "Locktime");
 
     let opReturnData = null;
     if (document.getElementById("includeOpReturn").checked) {
@@ -641,16 +710,25 @@ document.getElementById("createPsbt").onclick = () => {
         0,
         changeAddress,
         opReturnData,
-        sighashType
+        sighashType,
+        txLocktime
       );
       const vsize = estimateVirtualSize(temp);
       fee = Math.ceil(feeRate * vsize);
-      psbt = createPsbtFromInputs(utxos, outputs, fee, changeAddress, opReturnData, sighashType);
+      psbt = createPsbtFromInputs(
+        utxos,
+        outputs,
+        fee,
+        changeAddress,
+        opReturnData,
+        sighashType,
+        txLocktime
+      );
     } else {
       const totalIn = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
       const totalOut = outputs.reduce((sum, output) => sum + output.value, 0);
       fee = totalIn - totalOut;
-      psbt = createPsbtFromInputs(utxos, outputs, 0, "", opReturnData, sighashType);
+      psbt = createPsbtFromInputs(utxos, outputs, 0, "", opReturnData, sighashType, txLocktime);
       feeCalc.textContent = `Transaction fee: ${(fee / 1e8).toFixed(8)} BTC`;
     }
 
@@ -706,6 +784,8 @@ document.getElementById("clearButton").onclick = () => {
   document.getElementById("importData").value = "";
   document.getElementById("feeRate").value = "";
   document.getElementById("changeAddress").value = "";
+  document.getElementById("txLocktime").value = "00000000";
+  document.getElementById("txLocktime").dispatchEvent(new Event("input"));
   document.getElementById("includeOpReturn").checked = false;
   document.getElementById("opReturnMessage").value = "";
   document.getElementById("sighashType").value = "DEFAULT";
@@ -725,8 +805,15 @@ function validateChangeAddr() {
   colourField(changeAddrInput, isValid);
 }
 
+const txLocktimeInput = document.getElementById("txLocktime");
+function validateTxLocktime() {
+  colourField(txLocktimeInput, isValidUint32Hex(txLocktimeInput.value.trim()));
+}
+
 changeAddrInput.addEventListener("input", validateChangeAddr);
+txLocktimeInput.addEventListener("input", validateTxLocktime);
 validateChangeAddr();
+validateTxLocktime();
 
 document.getElementById("network").addEventListener("change", refreshAllScriptLabels);
 
@@ -735,12 +822,17 @@ function updateFeeCalc() {
   const feeRate = parseFloat(document.getElementById("feeRate").value) || 0;
 
   const utxos = Array.from(document.querySelectorAll("[data-utxo]")).map((row) => {
-    const [txidInput, voutInput, valueInput, scriptInput] = row.querySelectorAll("input");
+    const txidInput = row.querySelector(".txid-input");
+    const voutInput = row.querySelector(".vout-input");
+    const sequenceInput = row.querySelector(".sequence-input");
+    const valueInput = row.querySelector(".value-input");
+    const scriptInput = row.querySelector(".script-input");
     const inputSighashOption = row.querySelector(".input-sighash").value;
     const maybeInputSighash = optionToSighashType(inputSighashOption, true);
     return {
       txid: txidInput.value,
       vout: +voutInput.value,
+      sequenceHex: sequenceInput.value,
       value: Math.round(parseFloat(valueInput.value || 0) * 1e8),
       scriptPubKey: scriptInput.value,
       inputSighashOption,
@@ -771,7 +863,16 @@ function updateFeeCalc() {
       try {
         const changeAddress = document.getElementById("changeAddress").value.trim();
         const sighashType = getSelectedSighashType();
-        const temp = createPsbtFromInputs(utxos, outputs, 0, changeAddress, null, sighashType);
+        const txLocktime = parseUint32Hex(document.getElementById("txLocktime").value, "Locktime");
+        const temp = createPsbtFromInputs(
+          utxos,
+          outputs,
+          0,
+          changeAddress,
+          null,
+          sighashType,
+          txLocktime
+        );
         const vsize = estimateVirtualSize(temp);
         fee = Math.ceil(feeRate * vsize);
         available = totalIn - totalOut - fee;
@@ -825,6 +926,7 @@ document.getElementById("utxoContainer").addEventListener("input", updateFeeCalc
 document.getElementById("outputContainer").addEventListener("input", updateFeeCalc);
 document.getElementById("feeRate").addEventListener("input", updateFeeCalc);
 document.getElementById("changeAddress").addEventListener("input", updateFeeCalc);
+document.getElementById("txLocktime").addEventListener("input", updateFeeCalc);
 document.getElementById("sighashType").addEventListener("change", updateFeeCalc);
 
 addInput();

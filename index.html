@@ -504,6 +504,10 @@
           </select>
           <div class="hint">Applies the same sighash type to every PSBT input.</div>
 
+          <label for="txLocktime" style="margin-top:0.9rem;">Transaction Locktime (hex)</label>
+          <input type="text" id="txLocktime" value="00000000" placeholder="00000000">
+          <div class="hint">8-hex uint32. Imported locktime is restored here.</div>
+
           <div class="hidden-config" aria-hidden="true">
             <input type="checkbox" id="includeChange" disabled>
             <div id="feeRateGroup"><input type="number" id="feeRate" step="any" min="0" inputmode="decimal"></div>
