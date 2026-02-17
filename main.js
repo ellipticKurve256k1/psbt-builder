@@ -226,12 +226,9 @@ function createPsbtFromInputs(
 
   if (changeAddress && changeAddress.trim() !== "") {
     const changeValue = totalInput - totalOutput - fee;
-    if (changeValue < 0) throw new Error("Outputs + fee exceed total input!");
     if (changeValue > 0) {
       psbt.addOutput({ address: changeAddress, value: BigInt(changeValue) });
     }
-  } else if (totalInput - totalOutput < 0) {
-    throw new Error("Outputs exceed total input (no change addr).");
   }
 
   if (opReturnData) {
@@ -332,7 +329,6 @@ document.getElementById("createPsbt").onclick = () => {
       const totalIn = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
       const totalOut = outputs.reduce((sum, output) => sum + output.value, 0);
       fee = totalIn - totalOut;
-      if (fee < 0) return alert("Outputs exceed inputs!");
       psbt = createPsbtFromInputs(utxos, outputs, 0, "", opReturnData, sighashType);
       feeCalc.textContent = `Transaction fee: ${(fee / 1e8).toFixed(8)} BTC`;
     }
@@ -448,10 +444,7 @@ function updateFeeCalc() {
   } else {
     fee = totalIn - totalOut;
     available = 0;
-    feeText =
-      fee >= 0
-        ? `Transaction fee: ${(fee / 1e8).toFixed(8)} BTC`
-        : "Outputs exceed inputs!";
+    feeText = `Transaction fee: ${(fee / 1e8).toFixed(8)} BTC`;
   }
 
   document.getElementById("totalInputs").textContent = `${(totalIn / 1e8).toFixed(8)} BTC`;
