@@ -197,7 +197,8 @@
     }
 
     .row input,
-    .row button {
+    .row button,
+    .row select {
       width: auto;
       margin-top: 0;
     }
@@ -465,6 +466,15 @@
             <h2>Build</h2>
           </div>
 
+          <label for="importData">Import PSBT / Raw TX</label>
+          <textarea
+            id="importData"
+            rows="5"
+            placeholder="Paste PSBT base64, PSBT hex, or raw transaction hex"
+          ></textarea>
+          <button id="importDataButton" type="button" style="margin-top:0.55rem;">Load Into Form</button>
+          <div class="hint">Auto-fills inputs, outputs, OP_RETURN, and sighash when data includes them.</div>
+
           <div class="action-row">
             <button id="createPsbt">Create PSBT</button>
             <button id="clearButton">Clear</button>
@@ -476,9 +486,9 @@
           </div>
 
           <div id="opReturnGroup" style="display:none;">
-            <label for="opReturnMessage">OP_RETURN Message (text only)</label>
+            <label for="opReturnMessage">OP_RETURN Message (text or 0x hex)</label>
             <input type="text" id="opReturnMessage" placeholder="Enter text message">
-            <div class="hint">Maximum 83 bytes. Hex input is disabled.</div>
+            <div class="hint">Maximum 83 bytes. Hex format: 0x...</div>
             <div id="opReturnByteStatus">0 / 83 bytes</div>
           </div>
 
@@ -546,7 +556,11 @@
 
       function getByteState(value) {
         if (/^0x/i.test(value)) {
-          return { bytes: 0, error: "Hex input disabled. Enter plain text." };
+          const hexData = value.slice(2);
+          if (!hexData) return { bytes: 0, error: "" };
+          if (!/^[0-9a-fA-F]*$/.test(hexData)) return { bytes: 0, error: "Invalid hex data." };
+          if (hexData.length % 2 !== 0) return { bytes: 0, error: "Hex length must be even." };
+          return { bytes: hexData.length / 2, error: "" };
         }
         return { bytes: utf8Encoder.encode(value).length, error: "" };
       }

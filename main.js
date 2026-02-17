@@ -64,7 +64,53 @@ function decodeP2wpkhAddressFromScript(hex, network) {
   return null;
 }
 
-function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "") {
+function optionToSighashType(optionValue, allowInherit = false) {
+  if (allowInherit && optionValue === "INHERIT") return null;
+  switch (optionValue) {
+    case "DEFAULT":
+      return undefined;
+    case "ALL":
+      return bitcoin.Transaction.SIGHASH_ALL;
+    case "NONE":
+      return bitcoin.Transaction.SIGHASH_NONE;
+    case "SINGLE":
+      return bitcoin.Transaction.SIGHASH_SINGLE;
+    case "ALL_ANYONECANPAY":
+      return bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
+    case "NONE_ANYONECANPAY":
+      return bitcoin.Transaction.SIGHASH_NONE | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
+    case "SINGLE_ANYONECANPAY":
+      return bitcoin.Transaction.SIGHASH_SINGLE | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
+    default:
+      throw new Error("Invalid sighash type");
+  }
+}
+
+function sighashTypeToOption(sighashType) {
+  if (sighashType === undefined) return "DEFAULT";
+  switch (sighashType) {
+    case bitcoin.Transaction.SIGHASH_ALL:
+      return "ALL";
+    case bitcoin.Transaction.SIGHASH_NONE:
+      return "NONE";
+    case bitcoin.Transaction.SIGHASH_SINGLE:
+      return "SINGLE";
+    case bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_ANYONECANPAY:
+      return "ALL_ANYONECANPAY";
+    case bitcoin.Transaction.SIGHASH_NONE | bitcoin.Transaction.SIGHASH_ANYONECANPAY:
+      return "NONE_ANYONECANPAY";
+    case bitcoin.Transaction.SIGHASH_SINGLE | bitcoin.Transaction.SIGHASH_ANYONECANPAY:
+      return "SINGLE_ANYONECANPAY";
+    default:
+      return null;
+  }
+}
+
+function getSelectedSighashType() {
+  return optionToSighashType(document.getElementById("sighashType").value);
+}
+
+function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "", inputSighash = "INHERIT") {
   const div = document.createElement("div");
   div.setAttribute("data-utxo", "");
   div.style.marginBottom = "1rem";
@@ -83,12 +129,25 @@ function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "") {
     <div class="row" style="margin-top:0.4rem;">
       <input class="grow script-input" placeholder="scriptPubKey (hex, p2wpkh only)" value="${scriptPubKey}">
     </div>
+    <div class="row" style="margin-top:0.4rem;">
+      <select class="input-sighash">
+        <option value="INHERIT">Use global sighash</option>
+        <option value="DEFAULT">Unset on this input</option>
+        <option value="ALL">SIGHASH_ALL</option>
+        <option value="NONE">SIGHASH_NONE</option>
+        <option value="SINGLE">SIGHASH_SINGLE</option>
+        <option value="ALL_ANYONECANPAY">SIGHASH_ALL | ANYONECANPAY</option>
+        <option value="NONE_ANYONECANPAY">SIGHASH_NONE | ANYONECANPAY</option>
+        <option value="SINGLE_ANYONECANPAY">SIGHASH_SINGLE | ANYONECANPAY</option>
+      </select>
+    </div>
     <div class="script-label" style="font-size:0.85rem;color:#555;margin-top:0.2rem;">
       P2WPKH Address: <span>-</span>
     </div>
   `;
 
   document.getElementById("utxoContainer").appendChild(div);
+  div.querySelector(".input-sighash").value = inputSighash;
 
   div.querySelector(".remove").addEventListener("click", () => {
     div.remove();
@@ -114,6 +173,7 @@ function addInput(_, txid = "", vout = "", value = "", scriptPubKey = "") {
   };
 
   scriptInput.addEventListener("input", updateLabel);
+  div.querySelector(".input-sighash").addEventListener("change", updateFeeCalc);
   updateLabel();
   div.querySelectorAll("input")[2].addEventListener("input", updateFeeCalc);
 }
@@ -159,28 +219,6 @@ function estimateVirtualSize(psbt) {
   return Math.ceil((3 * baseSize + witnessSize) / 4);
 }
 
-function getSelectedSighashType() {
-  const value = document.getElementById("sighashType").value;
-  switch (value) {
-    case "DEFAULT":
-      return undefined;
-    case "ALL":
-      return bitcoin.Transaction.SIGHASH_ALL;
-    case "NONE":
-      return bitcoin.Transaction.SIGHASH_NONE;
-    case "SINGLE":
-      return bitcoin.Transaction.SIGHASH_SINGLE;
-    case "ALL_ANYONECANPAY":
-      return bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
-    case "NONE_ANYONECANPAY":
-      return bitcoin.Transaction.SIGHASH_NONE | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
-    case "SINGLE_ANYONECANPAY":
-      return bitcoin.Transaction.SIGHASH_SINGLE | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
-    default:
-      throw new Error("Invalid sighash type");
-  }
-}
-
 function createPsbtFromInputs(
   utxos,
   outputs,
@@ -198,6 +236,10 @@ function createPsbtFromInputs(
     if (!isP2wpkhScript(scriptBytes)) {
       throw new Error("Only P2WPKH input scriptPubKey is supported.");
     }
+    const resolvedSighashType =
+      utxo.inputSighashOption === "INHERIT" || utxo.inputSighashOption === undefined
+        ? sighashType
+        : utxo.sighashType;
 
     const inputData = {
       hash: utxo.txid,
@@ -208,8 +250,8 @@ function createPsbtFromInputs(
         value: BigInt(utxo.value),
       },
     };
-    if (sighashType !== undefined) {
-      inputData.sighashType = sighashType;
+    if (resolvedSighashType !== undefined) {
+      inputData.sighashType = resolvedSighashType;
     }
     psbt.addInput(inputData);
     totalInput += utxo.value;
@@ -250,6 +292,281 @@ function downloadPsbt(psbt) {
   link.click();
 }
 
+function satoshiToBtcString(satoshi) {
+  return (Number(satoshi) / 1e8).toFixed(8);
+}
+
+function inputHashToTxid(hash) {
+  return Buffer.from(Uint8Array.from(hash)).reverse().toString("hex");
+}
+
+function bytesToHex(bytes) {
+  return Buffer.from(bytes).toString("hex");
+}
+
+function extractOpReturnData(script) {
+  const chunks = bitcoin.script.decompile(script);
+  if (!chunks || chunks.length === 0 || chunks[0] !== bitcoin.opcodes.OP_RETURN) return null;
+
+  const dataChunks = [];
+  for (const chunk of chunks.slice(1)) {
+    if (!(chunk instanceof Uint8Array)) return null;
+    dataChunks.push(chunk);
+  }
+
+  const totalLength = dataChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of dataChunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
+}
+
+function opReturnDataToMessage(data) {
+  if (!data || data.length === 0) return "";
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(data);
+    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text)) {
+      return `0x${bytesToHex(data)}`;
+    }
+    return text;
+  } catch {
+    return `0x${bytesToHex(data)}`;
+  }
+}
+
+function deriveGlobalAndPerInputSighash(inputSighashOptions) {
+  if (inputSighashOptions.length === 0) {
+    return { globalSighashOption: "DEFAULT", perInputSighashOptions: [] };
+  }
+
+  const unique = Array.from(new Set(inputSighashOptions));
+  if (unique.length === 1) {
+    return {
+      globalSighashOption: unique[0],
+      perInputSighashOptions: inputSighashOptions.map(() => "INHERIT"),
+    };
+  }
+
+  return {
+    globalSighashOption: "DEFAULT",
+    perInputSighashOptions: inputSighashOptions,
+  };
+}
+
+function parseOutputsFromScripts(txOutputs, network, warnings) {
+  const outputs = [];
+  let opReturnMessage = null;
+  let opReturnCount = 0;
+
+  for (let i = 0; i < txOutputs.length; i += 1) {
+    const output = txOutputs[i];
+    const opReturnData = extractOpReturnData(output.script);
+    if (opReturnData !== null) {
+      opReturnCount += 1;
+      if (opReturnMessage === null) {
+        opReturnMessage = opReturnDataToMessage(opReturnData);
+      }
+      continue;
+    }
+
+    let address = output.address;
+    if (!address) {
+      try {
+        address = bitcoin.address.fromOutputScript(output.script, network);
+      } catch {
+        address = "";
+        warnings.push(`Output #${i} script could not be converted to address. Fill manually.`);
+      }
+    }
+
+    outputs.push({
+      address,
+      value: satoshiToBtcString(output.value),
+    });
+  }
+
+  if (opReturnCount > 1) {
+    warnings.push("Multiple OP_RETURN outputs detected. Only the first one was imported.");
+  }
+
+  return { outputs, opReturnMessage };
+}
+
+function parsePsbtToFormData(psbt) {
+  const network = getSelectedNetwork();
+  const warnings = [];
+  const parsedInputs = [];
+  const inputSighashOptions = [];
+
+  for (let i = 0; i < psbt.txInputs.length; i += 1) {
+    const txInput = psbt.txInputs[i];
+    const inputMeta = psbt.data.inputs[i] || {};
+    let scriptPubKey = "";
+    let value = "";
+
+    if (inputMeta.witnessUtxo) {
+      scriptPubKey = bytesToHex(inputMeta.witnessUtxo.script);
+      value = satoshiToBtcString(inputMeta.witnessUtxo.value);
+    } else if (inputMeta.nonWitnessUtxo) {
+      try {
+        const prevTx = bitcoin.Transaction.fromBuffer(inputMeta.nonWitnessUtxo);
+        const prevOut = prevTx.outs[txInput.index];
+        if (prevOut) {
+          scriptPubKey = bytesToHex(prevOut.script);
+          value = satoshiToBtcString(prevOut.value);
+        }
+      } catch {
+        warnings.push(`Input #${i} nonWitnessUtxo parse failed.`);
+      }
+    }
+
+    let inputSighashOption = "DEFAULT";
+    if (inputMeta.sighashType !== undefined) {
+      const mapped = sighashTypeToOption(inputMeta.sighashType);
+      if (mapped) {
+        inputSighashOption = mapped;
+      } else {
+        warnings.push(
+          `Input #${i} uses unsupported sighashType (${inputMeta.sighashType}). Imported as unset.`
+        );
+      }
+    }
+    inputSighashOptions.push(inputSighashOption);
+
+    parsedInputs.push({
+      txid: inputHashToTxid(txInput.hash),
+      vout: String(txInput.index),
+      value,
+      scriptPubKey,
+      inputSighashOption,
+    });
+  }
+
+  const { globalSighashOption, perInputSighashOptions } =
+    deriveGlobalAndPerInputSighash(inputSighashOptions);
+  parsedInputs.forEach((input, index) => {
+    input.inputSighashOption = perInputSighashOptions[index] || "INHERIT";
+  });
+
+  const { outputs, opReturnMessage } = parseOutputsFromScripts(psbt.txOutputs, network, warnings);
+
+  return {
+    inputs: parsedInputs,
+    outputs,
+    opReturnMessage,
+    globalSighashOption,
+    warnings,
+  };
+}
+
+function parseRawTransactionToFormData(tx) {
+  const network = getSelectedNetwork();
+  const warnings = [
+    "Raw transaction hex does not include prevout value/scriptPubKey. Fill input value/scriptPubKey manually.",
+  ];
+
+  const inputs = tx.ins.map((input) => ({
+    txid: inputHashToTxid(input.hash),
+    vout: String(input.index),
+    value: "",
+    scriptPubKey: "",
+    inputSighashOption: "INHERIT",
+  }));
+
+  const txOutputs = tx.outs.map((out) => ({
+    script: out.script,
+    value: out.value,
+  }));
+  const { outputs, opReturnMessage } = parseOutputsFromScripts(txOutputs, network, warnings);
+
+  return {
+    inputs,
+    outputs,
+    opReturnMessage,
+    globalSighashOption: "DEFAULT",
+    warnings,
+  };
+}
+
+function populateFormWithParsedData(parsed) {
+  document.getElementById("utxoContainer").innerHTML = "";
+  document.getElementById("outputContainer").innerHTML = "";
+
+  if (parsed.inputs.length === 0) {
+    addInput();
+  } else {
+    parsed.inputs.forEach((input) => {
+      addInput(
+        null,
+        input.txid,
+        input.vout,
+        input.value,
+        input.scriptPubKey,
+        input.inputSighashOption || "INHERIT"
+      );
+    });
+  }
+
+  if (parsed.outputs.length === 0) {
+    addOutput();
+  } else {
+    parsed.outputs.forEach((output) => {
+      addOutput(null, output.address, output.value);
+    });
+  }
+
+  document.getElementById("sighashType").value = parsed.globalSighashOption || "DEFAULT";
+
+  const includeOpReturn = document.getElementById("includeOpReturn");
+  const opReturnMessage = document.getElementById("opReturnMessage");
+  includeOpReturn.checked = parsed.opReturnMessage !== null;
+  opReturnMessage.value = parsed.opReturnMessage || "";
+  includeOpReturn.dispatchEvent(new Event("change"));
+  opReturnMessage.dispatchEvent(new Event("input"));
+
+  document.getElementById("psbtDisplay").style.display = "none";
+  document.getElementById("psbtBase64").value = "";
+  window.currentPsbt = null;
+  updateFeeCalc();
+
+  if (parsed.warnings.length > 0) {
+    alert(parsed.warnings.join("\n"));
+  }
+}
+
+function parsePastedTransactionData(rawValue) {
+  const compact = rawValue.trim().replace(/\s+/g, "");
+  if (!compact) {
+    throw new Error("Paste PSBT or raw transaction data first.");
+  }
+
+  const network = getSelectedNetwork();
+  try {
+    return { type: "psbt", data: bitcoin.Psbt.fromBase64(compact, { network }) };
+  } catch {}
+
+  if (/^[0-9a-fA-F]+$/.test(compact)) {
+    if (compact.toLowerCase().startsWith("70736274ff")) {
+      try {
+        return { type: "psbt", data: bitcoin.Psbt.fromHex(compact, { network }) };
+      } catch {}
+    }
+
+    try {
+      return { type: "rawtx", data: bitcoin.Transaction.fromHex(compact) };
+    } catch {}
+
+    try {
+      return { type: "psbt", data: bitcoin.Psbt.fromHex(compact, { network }) };
+    } catch {}
+  }
+
+  throw new Error("Unsupported format. Paste PSBT base64/hex or raw transaction hex.");
+}
+
 document.getElementById("createPsbt").onclick = () => {
   try {
     const network = getSelectedNetwork();
@@ -264,11 +581,15 @@ document.getElementById("createPsbt").onclick = () => {
     const utxos = Array.from(document.getElementById("utxoContainer").children).map(
       (row) => {
         const [txidInput, voutInput, valueInput, scriptInput] = row.querySelectorAll("input");
+        const inputSighashOption = row.querySelector(".input-sighash").value;
+        const maybeInputSighash = optionToSighashType(inputSighashOption, true);
         return {
           txid: txidInput.value.trim(),
           vout: parseInt(voutInput.value, 10),
           value: Math.round(parseFloat(valueInput.value) * 1e8),
           scriptPubKey: scriptInput.value.trim(),
+          inputSighashOption,
+          sighashType: maybeInputSighash === null ? undefined : maybeInputSighash,
         };
       }
     );
@@ -365,9 +686,24 @@ document.getElementById("downloadPsbtButton").onclick = () => {
   if (window.currentPsbt) downloadPsbt(window.currentPsbt);
 };
 
+document.getElementById("importDataButton").onclick = () => {
+  try {
+    const raw = document.getElementById("importData").value;
+    const parsed = parsePastedTransactionData(raw);
+    if (parsed.type === "psbt") {
+      populateFormWithParsedData(parsePsbtToFormData(parsed.data));
+    } else {
+      populateFormWithParsedData(parseRawTransactionToFormData(parsed.data));
+    }
+  } catch (error) {
+    alert("Import failed: " + error.message);
+  }
+};
+
 document.getElementById("clearButton").onclick = () => {
   document.getElementById("utxoContainer").innerHTML = "";
   document.getElementById("outputContainer").innerHTML = "";
+  document.getElementById("importData").value = "";
   document.getElementById("feeRate").value = "";
   document.getElementById("changeAddress").value = "";
   document.getElementById("includeOpReturn").checked = false;
@@ -400,11 +736,15 @@ function updateFeeCalc() {
 
   const utxos = Array.from(document.querySelectorAll("[data-utxo]")).map((row) => {
     const [txidInput, voutInput, valueInput, scriptInput] = row.querySelectorAll("input");
+    const inputSighashOption = row.querySelector(".input-sighash").value;
+    const maybeInputSighash = optionToSighashType(inputSighashOption, true);
     return {
       txid: txidInput.value,
       vout: +voutInput.value,
       value: Math.round(parseFloat(valueInput.value || 0) * 1e8),
       scriptPubKey: scriptInput.value,
+      inputSighashOption,
+      sighashType: maybeInputSighash === null ? undefined : maybeInputSighash,
     };
   });
 
