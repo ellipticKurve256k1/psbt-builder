@@ -159,7 +159,36 @@ function estimateVirtualSize(psbt) {
   return Math.ceil((3 * baseSize + witnessSize) / 4);
 }
 
-function createPsbtFromInputs(utxos, outputs, fee, changeAddress, opReturnData) {
+function getSelectedSighashType() {
+  const value = document.getElementById("sighashType").value;
+  switch (value) {
+    case "DEFAULT":
+      return undefined;
+    case "ALL":
+      return bitcoin.Transaction.SIGHASH_ALL;
+    case "NONE":
+      return bitcoin.Transaction.SIGHASH_NONE;
+    case "SINGLE":
+      return bitcoin.Transaction.SIGHASH_SINGLE;
+    case "ALL_ANYONECANPAY":
+      return bitcoin.Transaction.SIGHASH_ALL | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
+    case "NONE_ANYONECANPAY":
+      return bitcoin.Transaction.SIGHASH_NONE | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
+    case "SINGLE_ANYONECANPAY":
+      return bitcoin.Transaction.SIGHASH_SINGLE | bitcoin.Transaction.SIGHASH_ANYONECANPAY;
+    default:
+      throw new Error("Invalid sighash type");
+  }
+}
+
+function createPsbtFromInputs(
+  utxos,
+  outputs,
+  fee,
+  changeAddress,
+  opReturnData,
+  sighashType = undefined
+) {
   const network = getSelectedNetwork();
   const psbt = new bitcoin.Psbt({ network });
 
@@ -170,7 +199,7 @@ function createPsbtFromInputs(utxos, outputs, fee, changeAddress, opReturnData) 
       throw new Error("Only P2WPKH input scriptPubKey is supported.");
     }
 
-    psbt.addInput({
+    const inputData = {
       hash: utxo.txid,
       index: utxo.vout,
       sequence: 0xfffffffd,
@@ -178,7 +207,11 @@ function createPsbtFromInputs(utxos, outputs, fee, changeAddress, opReturnData) 
         script: scriptBytes,
         value: BigInt(utxo.value),
       },
-    });
+    };
+    if (sighashType !== undefined) {
+      inputData.sighashType = sighashType;
+    }
+    psbt.addInput(inputData);
     totalInput += utxo.value;
   }
 
@@ -256,6 +289,7 @@ document.getElementById("createPsbt").onclick = () => {
     const includeChange = includeChangeCheckbox.checked;
     const feeRate = parseFloat(document.getElementById("feeRate").value);
     const changeAddress = document.getElementById("changeAddress").value.trim();
+    const sighashType = getSelectedSighashType();
 
     let opReturnData = null;
     if (document.getElementById("includeOpReturn").checked) {
@@ -283,16 +317,23 @@ document.getElementById("createPsbt").onclick = () => {
     let psbt;
     let fee;
     if (includeChange) {
-      const temp = createPsbtFromInputs(utxos, outputs, 0, changeAddress, opReturnData);
+      const temp = createPsbtFromInputs(
+        utxos,
+        outputs,
+        0,
+        changeAddress,
+        opReturnData,
+        sighashType
+      );
       const vsize = estimateVirtualSize(temp);
       fee = Math.ceil(feeRate * vsize);
-      psbt = createPsbtFromInputs(utxos, outputs, fee, changeAddress, opReturnData);
+      psbt = createPsbtFromInputs(utxos, outputs, fee, changeAddress, opReturnData, sighashType);
     } else {
       const totalIn = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
       const totalOut = outputs.reduce((sum, output) => sum + output.value, 0);
       fee = totalIn - totalOut;
       if (fee < 0) return alert("Outputs exceed inputs!");
-      psbt = createPsbtFromInputs(utxos, outputs, 0, "", opReturnData);
+      psbt = createPsbtFromInputs(utxos, outputs, 0, "", opReturnData, sighashType);
       feeCalc.textContent = `Transaction fee: ${(fee / 1e8).toFixed(8)} BTC`;
     }
 
@@ -335,6 +376,7 @@ document.getElementById("clearButton").onclick = () => {
   document.getElementById("changeAddress").value = "";
   document.getElementById("includeOpReturn").checked = false;
   document.getElementById("opReturnMessage").value = "";
+  document.getElementById("sighashType").value = "DEFAULT";
   document.getElementById("opReturnGroup").style.display = "none";
   document.getElementById("psbtDisplay").style.display = "none";
   document.getElementById("psbtBase64").value = "";
@@ -392,7 +434,8 @@ function updateFeeCalc() {
     } else {
       try {
         const changeAddress = document.getElementById("changeAddress").value.trim();
-        const temp = createPsbtFromInputs(utxos, outputs, 0, changeAddress);
+        const sighashType = getSelectedSighashType();
+        const temp = createPsbtFromInputs(utxos, outputs, 0, changeAddress, null, sighashType);
         const vsize = estimateVirtualSize(temp);
         fee = Math.ceil(feeRate * vsize);
         available = totalIn - totalOut - fee;
@@ -449,6 +492,7 @@ document.getElementById("utxoContainer").addEventListener("input", updateFeeCalc
 document.getElementById("outputContainer").addEventListener("input", updateFeeCalc);
 document.getElementById("feeRate").addEventListener("input", updateFeeCalc);
 document.getElementById("changeAddress").addEventListener("input", updateFeeCalc);
+document.getElementById("sighashType").addEventListener("change", updateFeeCalc);
 
 addInput();
 addOutput();

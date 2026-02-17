@@ -482,6 +482,18 @@
             <div id="opReturnByteStatus">0 / 83 bytes</div>
           </div>
 
+          <label for="sighashType" style="margin-top:0.9rem;">Sighash Type (all inputs)</label>
+          <select id="sighashType">
+            <option value="DEFAULT">Unset (wallet default)</option>
+            <option value="ALL">SIGHASH_ALL</option>
+            <option value="NONE">SIGHASH_NONE</option>
+            <option value="SINGLE">SIGHASH_SINGLE</option>
+            <option value="ALL_ANYONECANPAY">SIGHASH_ALL | ANYONECANPAY</option>
+            <option value="NONE_ANYONECANPAY">SIGHASH_NONE | ANYONECANPAY</option>
+            <option value="SINGLE_ANYONECANPAY">SIGHASH_SINGLE | ANYONECANPAY</option>
+          </select>
+          <div class="hint">Applies the same sighash type to every PSBT input.</div>
+
           <div class="hidden-config" aria-hidden="true">
             <input type="checkbox" id="includeChange" disabled>
             <div id="feeRateGroup"><input type="number" id="feeRate" step="any" min="0" inputmode="decimal"></div>
