@@ -1050,11 +1050,18 @@ function isValidHexPayload(value) {
   return /^[0-9a-f]+$/.test(value) && value.length % 2 === 0;
 }
 
-async function fetchRawTxHexFromMempool(txid) {
+function getMempoolTxApiBase(networkValue, txid) {
+  const normalizedNetwork = networkValue === "testnet" ? "testnet" : "mainnet";
+  const networkPath = normalizedNetwork === "testnet" ? "/testnet" : "";
+  return `https://mempool.space${networkPath}/api/tx/${txid}`;
+}
+
+async function fetchRawTxHexFromMempool(txid, networkValue = "mainnet") {
   const normalizedTxid = String(txid || "").trim().toLowerCase();
+  const apiBase = getMempoolTxApiBase(networkValue, normalizedTxid);
   let lastStatus = null;
 
-  const hexResponse = await fetch(`https://mempool.space/api/tx/${normalizedTxid}/hex`, {
+  const hexResponse = await fetch(`${apiBase}/hex`, {
     headers: { Accept: "text/plain" },
   });
   if (hexResponse.ok) {
@@ -1066,7 +1073,7 @@ async function fetchRawTxHexFromMempool(txid) {
   }
   lastStatus = hexResponse.status;
 
-  const txResponse = await fetch(`https://mempool.space/api/tx/${normalizedTxid}`, {
+  const txResponse = await fetch(apiBase, {
     headers: { Accept: "application/json" },
   });
   if (txResponse.ok) {
@@ -1095,6 +1102,7 @@ function initPageMenu() {
   const clearRawTxButton = document.getElementById("clearRawTxButton");
   const rawTxFetchStatus = document.getElementById("rawTxFetchStatus");
   const rawTxHexInput = document.getElementById("rawTxHexInput");
+  const networkSelect = document.getElementById("network");
 
   if (
     !builderPage ||
@@ -1105,7 +1113,8 @@ function initPageMenu() {
     !fetchRawTxButton ||
     !clearRawTxButton ||
     !rawTxFetchStatus ||
-    !rawTxHexInput
+    !rawTxHexInput ||
+    !networkSelect
   ) {
     return;
   }
@@ -1136,13 +1145,15 @@ function initPageMenu() {
       return;
     }
 
+    const selectedNetworkValue = networkSelect.value === "testnet" ? "testnet" : "mainnet";
+
     requestCounter += 1;
     const currentRequest = requestCounter;
     fetchRawTxButton.disabled = true;
-    setFetchStatus("Loading from mempool.space...", false);
+    setFetchStatus(`Loading from mempool.space ${selectedNetworkValue} API...`, false);
 
     try {
-      const rawTxHex = await fetchRawTxHexFromMempool(txid);
+      const rawTxHex = await fetchRawTxHexFromMempool(txid, selectedNetworkValue);
       if (currentRequest !== requestCounter) return;
       rawTxHexInput.value = rawTxHex;
       renderRawTxDecoderView(rawTxHex);
@@ -1159,6 +1170,9 @@ function initPageMenu() {
 
   openBuilderPageButton.addEventListener("click", () => setPage("builder"));
   openDecoderPageButton.addEventListener("click", () => setPage("decoder"));
+  networkSelect.addEventListener("change", () => {
+    renderRawTxSummary(rawTxHexInput.value);
+  });
   rawTxHexInput.addEventListener("input", (event) => {
     renderRawTxDecoderView(event.target.value);
   });

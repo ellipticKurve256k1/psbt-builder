@@ -711,7 +711,9 @@
           <button type="button" id="fetchRawTxButton">Load Raw TX</button>
           <button type="button" id="clearRawTxButton">Clear</button>
         </div>
-        <div class="hint">Fetches transaction data from https://mempool.space/api/tx/{txid}.</div>
+        <div class="hint">
+          Mainnet: https://mempool.space/api/tx/{txid}, Testnet: https://mempool.space/testnet/api/tx/{txid}
+        </div>
         <div id="rawTxFetchStatus" aria-live="polite"></div>
         <label for="rawTxHexInput">Raw Transaction Hex</label>
         <textarea
