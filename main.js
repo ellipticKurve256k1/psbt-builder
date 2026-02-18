@@ -998,16 +998,18 @@ function renderRawTxSummary(rawValue) {
     const tx = bitcoin.Transaction.fromHex(compact);
     const network = getSelectedNetwork();
 
-    const inputDetails = tx.ins.slice(0, 2).map((input, index) => ({
+    const inputDetails = tx.ins.map((input, index) => ({
       index,
       outpoint: `${inputHashToTxid(input.hash)}:${input.index}`,
       sighash: formatSighashLabel(inferInputSighashType(input)),
+      sequenceHex: formatUint32Hex(input.sequence >>> 0),
     }));
 
     inputDetails.forEach((input) => {
       inputSummary.appendChild(
         createRawTxSummaryItem(`Input #${input.index}`, [
           { label: "Outpoint", value: input.outpoint, mono: true },
+          { label: "nSequence", value: `0x${input.sequenceHex}`, mono: true },
           { label: "Sighash", value: input.sighash, mono: false },
         ])
       );
