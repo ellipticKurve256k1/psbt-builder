@@ -886,6 +886,160 @@ function renderRawTxSegments(rawValue) {
   }
 }
 
+function tryDecodeSighashType(signatureBytes) {
+  if (!(signatureBytes instanceof Uint8Array) || signatureBytes.length === 0) {
+    return null;
+  }
+
+  const candidate = Buffer.from(signatureBytes);
+  try {
+    const decoded = bitcoin.script.signature.decode(candidate);
+    return decoded.hashType >>> 0;
+  } catch {}
+
+  if (candidate.length === 64) {
+    return bitcoin.Transaction.SIGHASH_DEFAULT;
+  }
+  if (candidate.length === 65 && candidate[0] !== 0x04) {
+    return candidate[64] >>> 0;
+  }
+  return null;
+}
+
+function inferInputSighashType(input) {
+  const candidates = [];
+
+  if (Array.isArray(input.witness)) {
+    for (const item of input.witness) {
+      if (item instanceof Uint8Array) {
+        candidates.push(item);
+      }
+    }
+  }
+
+  if (input.script && input.script.length > 0) {
+    const chunks = bitcoin.script.decompile(input.script) || [];
+    for (const chunk of chunks) {
+      if (chunk instanceof Uint8Array) {
+        candidates.push(chunk);
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    const sighashType = tryDecodeSighashType(candidate);
+    if (sighashType !== null) {
+      return sighashType;
+    }
+  }
+  return null;
+}
+
+function formatSighashLabel(sighashType) {
+  if (sighashType === null) return "Unknown";
+  if (sighashType === bitcoin.Transaction.SIGHASH_DEFAULT) return "SIGHASH_DEFAULT (0x00)";
+
+  const base = sighashType & 0x1f;
+  const hasAnyoneCanPay = (sighashType & bitcoin.Transaction.SIGHASH_ANYONECANPAY) !== 0;
+  let baseLabel = null;
+
+  if (base === bitcoin.Transaction.SIGHASH_ALL) baseLabel = "SIGHASH_ALL";
+  else if (base === bitcoin.Transaction.SIGHASH_NONE) baseLabel = "SIGHASH_NONE";
+  else if (base === bitcoin.Transaction.SIGHASH_SINGLE) baseLabel = "SIGHASH_SINGLE";
+
+  if (!baseLabel) return `Unknown (0x${(sighashType & 0xff).toString(16).padStart(2, "0")})`;
+  const label = hasAnyoneCanPay ? `${baseLabel} | ANYONECANPAY` : baseLabel;
+  return `${label} (0x${(sighashType & 0xff).toString(16).padStart(2, "0")})`;
+}
+
+function createRawTxSummaryRow(label, value, useMono = false) {
+  const row = document.createElement("div");
+  row.className = "rawtx-summary-row";
+
+  const key = document.createElement("span");
+  key.className = "rawtx-summary-key";
+  key.textContent = label;
+
+  const rawValue = document.createElement("span");
+  rawValue.className = useMono ? "rawtx-summary-value mono" : "rawtx-summary-value";
+  rawValue.textContent = value;
+
+  row.append(key, rawValue);
+  return row;
+}
+
+function createRawTxSummaryItem(title, rows) {
+  const item = document.createElement("article");
+  item.className = "rawtx-summary-item";
+
+  const heading = document.createElement("div");
+  heading.className = "rawtx-summary-head";
+  heading.textContent = title;
+  item.appendChild(heading);
+
+  rows.forEach((row) => {
+    item.appendChild(createRawTxSummaryRow(row.label, row.value, row.mono));
+  });
+  return item;
+}
+
+function renderRawTxSummary(rawValue) {
+  const inputSummary = document.getElementById("rawTxInputSummary");
+  const outputSummary = document.getElementById("rawTxOutputSummary");
+  if (!inputSummary || !outputSummary) return;
+
+  inputSummary.textContent = "";
+  outputSummary.textContent = "";
+
+  const compact = normalizeHexInput(rawValue);
+  if (!compact) return;
+
+  try {
+    const tx = bitcoin.Transaction.fromHex(compact);
+    const network = getSelectedNetwork();
+
+    const inputDetails = tx.ins.slice(0, 2).map((input, index) => ({
+      index,
+      outpoint: `${inputHashToTxid(input.hash)}:${input.index}`,
+      sighash: formatSighashLabel(inferInputSighashType(input)),
+    }));
+
+    inputDetails.forEach((input) => {
+      inputSummary.appendChild(
+        createRawTxSummaryItem(`Input #${input.index}`, [
+          { label: "Outpoint", value: input.outpoint, mono: true },
+          { label: "Sighash", value: input.sighash, mono: false },
+        ])
+      );
+    });
+
+    tx.outs.forEach((output, index) => {
+      const scriptPubKey = bytesToHex(output.script);
+      let address = "-";
+      try {
+        address = bitcoin.address.fromOutputScript(output.script, network);
+      } catch {}
+
+      const valueSats = typeof output.value === "bigint" ? output.value : BigInt(output.value);
+      const amount = `${satoshiToBtcString(valueSats)} BTC (${valueSats.toString()} sats)`;
+
+      outputSummary.appendChild(
+        createRawTxSummaryItem(`Output #${index}`, [
+          { label: "Script", value: scriptPubKey, mono: true },
+          { label: "Address", value: address, mono: true },
+          { label: "Amount", value: amount, mono: false },
+        ])
+      );
+    });
+  } catch {
+    inputSummary.appendChild(
+      createRawTxSummaryItem("Input Summary", [
+        { label: "Status", value: "Could not parse this transaction.", mono: false },
+      ])
+    );
+  }
+}
+
 function isValidTxid(txid) {
   return /^[0-9a-fA-F]{64}$/.test(String(txid || "").trim());
 }
@@ -954,6 +1108,11 @@ function initPageMenu() {
     return;
   }
 
+  const renderRawTxDecoderView = (value) => {
+    renderRawTxSegments(value);
+    renderRawTxSummary(value);
+  };
+
   const setPage = (page) => {
     const showBuilder = page === "builder";
     builderPage.classList.toggle("hidden", !showBuilder);
@@ -984,7 +1143,7 @@ function initPageMenu() {
       const rawTxHex = await fetchRawTxHexFromMempool(txid);
       if (currentRequest !== requestCounter) return;
       rawTxHexInput.value = rawTxHex;
-      renderRawTxSegments(rawTxHex);
+      renderRawTxDecoderView(rawTxHex);
       setFetchStatus("Loaded.", false);
     } catch (error) {
       if (currentRequest !== requestCounter) return;
@@ -999,7 +1158,7 @@ function initPageMenu() {
   openBuilderPageButton.addEventListener("click", () => setPage("builder"));
   openDecoderPageButton.addEventListener("click", () => setPage("decoder"));
   rawTxHexInput.addEventListener("input", (event) => {
-    renderRawTxSegments(event.target.value);
+    renderRawTxDecoderView(event.target.value);
   });
   rawTxIdInput.addEventListener("input", () => {
     setFetchStatus("", false);
@@ -1024,10 +1183,10 @@ function initPageMenu() {
     rawTxIdInput.value = "";
     rawTxHexInput.value = "";
     setFetchStatus("", false);
-    renderRawTxSegments("");
+    renderRawTxDecoderView("");
   });
 
-  renderRawTxSegments(rawTxHexInput.value);
+  renderRawTxDecoderView(rawTxHexInput.value);
   setPage("builder");
 }
 
