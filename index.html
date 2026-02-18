@@ -66,6 +66,26 @@
       background: rgba(21, 30, 41, 0.9);
     }
 
+    .menu-row {
+      display: flex;
+      gap: 0.55rem;
+    }
+
+    .menu-button {
+      width: auto;
+      margin: 0;
+      padding: 0.5rem 0.9rem;
+      border-color: #42586e;
+      background: linear-gradient(180deg, #2d4154 0%, #253646 100%);
+      color: #d1e2f3;
+    }
+
+    .menu-button.active {
+      border-color: #2e9de1;
+      background: linear-gradient(180deg, #1b7aba 0%, #125f92 100%);
+      color: #eff8ff;
+    }
+
     .title-wrap h1 {
       font-size: 1.7rem;
       letter-spacing: 0.01em;
@@ -382,6 +402,41 @@
       flex-wrap: wrap;
     }
 
+    .app-page {
+      display: block;
+    }
+
+    .app-page.hidden {
+      display: none;
+    }
+
+    #rawTxHexInput {
+      min-height: 170px;
+    }
+
+    #rawTxDecodedOutput {
+      margin-top: 0.75rem;
+      min-height: 170px;
+      padding: 0.78rem;
+      border: 1px solid #2f3f50;
+      border-radius: 10px;
+      background: #131a22;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 2rem;
+      line-height: 1.38;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .tx-seg-0 { color: #e66868; }
+    .tx-seg-1 { color: #5eb1ff; }
+    .tx-seg-2 { color: #8fcd7a; }
+    .tx-seg-3 { color: #ef9d5b; }
+    .tx-seg-4 { color: #d986ff; }
+    .tx-seg-5 { color: #74d9cf; }
+    .tx-seg-6 { color: #f6cc67; }
+    .tx-seg-7 { color: #f07b9a; }
+
     @media (max-width: 1050px) {
       .workspace {
         grid-template-columns: 1fr;
@@ -400,6 +455,10 @@
       .topbar {
         flex-direction: column;
         align-items: stretch;
+      }
+
+      .menu-row {
+        flex-wrap: wrap;
       }
 
       .action-row,
@@ -440,117 +499,139 @@
       </div>
     </header>
 
-    <section class="workspace">
-      <div class="left-column">
-        <section class="card">
-          <div class="card-head">
-            <h2>Inputs (UTXOs)</h2>
-            <button type="button" id="addInputButton" class="head-action">+ Add Input</button>
-          </div>
-          <div class="hint input-warning">Only P2WPKH as input is supported.</div>
-          <div id="utxoContainer" class="stack"></div>
-        </section>
+    <nav class="menu-row">
+      <button type="button" id="openBuilderPage" class="menu-button active">PSBT Builder</button>
+      <button type="button" id="openDecoderPage" class="menu-button">Raw Transaction Hex Decoder</button>
+    </nav>
 
-        <section class="card">
-          <div class="card-head">
-            <h2>Outputs</h2>
-            <button type="button" id="addOutputButton" class="head-action">+ Add Output</button>
-          </div>
-          <div id="outputContainer" class="stack"></div>
-        </section>
-      </div>
-
-      <aside class="right-column">
-        <section class="card">
-          <div class="card-head">
-            <h2>Build</h2>
-          </div>
-
-          <label for="importData">Import PSBT / Raw TX</label>
-          <textarea
-            id="importData"
-            rows="5"
-            placeholder="Paste PSBT base64, PSBT hex, or raw transaction hex"
-          ></textarea>
-          <button id="importDataButton" type="button" style="margin-top:0.55rem;">Load Into Form</button>
-          <div class="hint">Auto-fills inputs, outputs, OP_RETURN, and sighash when data includes them.</div>
-
-          <div class="action-row">
-            <button id="createPsbt">Create PSBT</button>
-            <button id="clearButton">Clear</button>
-          </div>
-
-          <div class="option-line">
-            <input type="checkbox" id="includeOpReturn">
-            <label for="includeOpReturn">Add OP_RETURN message</label>
-          </div>
-
-          <div id="opReturnGroup" style="display:none;">
-            <label for="opReturnMessage">OP_RETURN Message (text or 0x hex)</label>
-            <input type="text" id="opReturnMessage" placeholder="Enter text message">
-            <div class="hint">Maximum 83 bytes. Hex format: 0x...</div>
-            <div id="opReturnByteStatus">0 / 83 bytes</div>
-          </div>
-
-          <label for="sighashType" style="margin-top:0.9rem;">Sighash Type (all inputs)</label>
-          <select id="sighashType">
-            <option value="DEFAULT">Unset (wallet default)</option>
-            <option value="ALL">SIGHASH_ALL</option>
-            <option value="NONE">SIGHASH_NONE</option>
-            <option value="SINGLE">SIGHASH_SINGLE</option>
-            <option value="ALL_ANYONECANPAY">SIGHASH_ALL | ANYONECANPAY</option>
-            <option value="NONE_ANYONECANPAY">SIGHASH_NONE | ANYONECANPAY</option>
-            <option value="SINGLE_ANYONECANPAY">SIGHASH_SINGLE | ANYONECANPAY</option>
-          </select>
-          <div class="hint">Applies the same sighash type to every PSBT input.</div>
-
-          <label for="txVersion" style="margin-top:0.9rem;">Transaction Version</label>
-          <input type="text" id="txVersion" value="2" placeholder="2">
-          <div class="hint">Decimal uint32. Imported version is restored here.</div>
-
-          <label for="txLocktime" style="margin-top:0.9rem;">Transaction Locktime (hex)</label>
-          <input type="text" id="txLocktime" value="00000000" placeholder="00000000">
-          <div class="hint">8-hex uint32. Imported locktime is restored here.</div>
-
-          <div class="hidden-config" aria-hidden="true">
-            <input type="checkbox" id="includeChange" disabled>
-            <div id="feeRateGroup"><input type="number" id="feeRate" step="any" min="0" inputmode="decimal"></div>
-            <div id="changeAddrGroup"><input type="text" id="changeAddress"></div>
-          </div>
-        </section>
-
-        <section id="balanceTracker" class="card">
-          <div class="summary-title">Balance Summary</div>
-          <div class="summary-grid">
-            <div class="summary-row">
-              <span>Total Inputs:</span>
-              <strong id="totalInputs">0 BTC</strong>
+    <section id="builderPage" class="app-page">
+      <section class="workspace">
+        <div class="left-column">
+          <section class="card">
+            <div class="card-head">
+              <h2>Inputs (UTXOs)</h2>
+              <button type="button" id="addInputButton" class="head-action">+ Add Input</button>
             </div>
-            <div class="summary-row">
-              <span>Total Outputs:</span>
-              <strong id="totalOutputs">0 BTC</strong>
-            </div>
-            <div class="summary-row total">
-              <span>Fee:</span>
-              <strong id="feeAmount">0 BTC</strong>
-            </div>
-            <strong id="availableBalance" style="display:none;">0 BTC</strong>
-          </div>
-        </section>
+            <div class="hint input-warning">Only P2WPKH as input is supported.</div>
+            <div id="utxoContainer" class="stack"></div>
+          </section>
 
-        <section class="card">
-          <div id="feeCalc" style="display:none;"></div>
-        </section>
+          <section class="card">
+            <div class="card-head">
+              <h2>Outputs</h2>
+              <button type="button" id="addOutputButton" class="head-action">+ Add Output</button>
+            </div>
+            <div id="outputContainer" class="stack"></div>
+          </section>
+        </div>
 
-      </aside>
+        <aside class="right-column">
+          <section class="card">
+            <div class="card-head">
+              <h2>Build</h2>
+            </div>
+
+            <label for="importData">Import PSBT / Raw TX</label>
+            <textarea
+              id="importData"
+              rows="5"
+              placeholder="Paste PSBT base64, PSBT hex, or raw transaction hex"
+            ></textarea>
+            <button id="importDataButton" type="button" style="margin-top:0.55rem;">Load Into Form</button>
+            <div class="hint">Auto-fills inputs, outputs, OP_RETURN, and sighash when data includes them.</div>
+
+            <div class="action-row">
+              <button id="createPsbt">Create PSBT</button>
+              <button id="clearButton">Clear</button>
+            </div>
+
+            <div class="option-line">
+              <input type="checkbox" id="includeOpReturn">
+              <label for="includeOpReturn">Add OP_RETURN message</label>
+            </div>
+
+            <div id="opReturnGroup" style="display:none;">
+              <label for="opReturnMessage">OP_RETURN Message (text or 0x hex)</label>
+              <input type="text" id="opReturnMessage" placeholder="Enter text message">
+              <div class="hint">Maximum 83 bytes. Hex format: 0x...</div>
+              <div id="opReturnByteStatus">0 / 83 bytes</div>
+            </div>
+
+            <label for="sighashType" style="margin-top:0.9rem;">Sighash Type (all inputs)</label>
+            <select id="sighashType">
+              <option value="DEFAULT">Unset (wallet default)</option>
+              <option value="ALL">SIGHASH_ALL</option>
+              <option value="NONE">SIGHASH_NONE</option>
+              <option value="SINGLE">SIGHASH_SINGLE</option>
+              <option value="ALL_ANYONECANPAY">SIGHASH_ALL | ANYONECANPAY</option>
+              <option value="NONE_ANYONECANPAY">SIGHASH_NONE | ANYONECANPAY</option>
+              <option value="SINGLE_ANYONECANPAY">SIGHASH_SINGLE | ANYONECANPAY</option>
+            </select>
+            <div class="hint">Applies the same sighash type to every PSBT input.</div>
+
+            <label for="txVersion" style="margin-top:0.9rem;">Transaction Version</label>
+            <input type="text" id="txVersion" value="2" placeholder="2">
+            <div class="hint">Decimal uint32. Imported version is restored here.</div>
+
+            <label for="txLocktime" style="margin-top:0.9rem;">Transaction Locktime (hex)</label>
+            <input type="text" id="txLocktime" value="00000000" placeholder="00000000">
+            <div class="hint">8-hex uint32. Imported locktime is restored here.</div>
+
+            <div class="hidden-config" aria-hidden="true">
+              <input type="checkbox" id="includeChange" disabled>
+              <div id="feeRateGroup"><input type="number" id="feeRate" step="any" min="0" inputmode="decimal"></div>
+              <div id="changeAddrGroup"><input type="text" id="changeAddress"></div>
+            </div>
+          </section>
+
+          <section id="balanceTracker" class="card">
+            <div class="summary-title">Balance Summary</div>
+            <div class="summary-grid">
+              <div class="summary-row">
+                <span>Total Inputs:</span>
+                <strong id="totalInputs">0 BTC</strong>
+              </div>
+              <div class="summary-row">
+                <span>Total Outputs:</span>
+                <strong id="totalOutputs">0 BTC</strong>
+              </div>
+              <div class="summary-row total">
+                <span>Fee:</span>
+                <strong id="feeAmount">0 BTC</strong>
+              </div>
+              <strong id="availableBalance" style="display:none;">0 BTC</strong>
+            </div>
+          </section>
+
+          <section class="card">
+            <div id="feeCalc" style="display:none;"></div>
+          </section>
+
+        </aside>
+      </section>
+      <section id="psbtDisplay" class="card" style="display: none;">
+        <label for="psbtBase64">PSBT (Base64) - Copy this to your wallet</label>
+        <textarea id="psbtBase64" readonly rows="12"></textarea>
+        <div class="result-actions">
+          <button id="copyPsbtButton">Copy to Clipboard</button>
+          <button id="downloadPsbtButton">Download PSBT File</button>
+        </div>
+      </section>
     </section>
-    <section id="psbtDisplay" class="card" style="display: none;">
-      <label for="psbtBase64">PSBT (Base64) - Copy this to your wallet</label>
-      <textarea id="psbtBase64" readonly rows="12"></textarea>
-      <div class="result-actions">
-        <button id="copyPsbtButton">Copy to Clipboard</button>
-        <button id="downloadPsbtButton">Download PSBT File</button>
-      </div>
+
+    <section id="decoderPage" class="app-page hidden">
+      <section class="card">
+        <div class="card-head">
+          <h2>Raw Transaction Hex Decoder</h2>
+        </div>
+        <label for="rawTxHexInput">Raw Transaction Hex</label>
+        <textarea
+          id="rawTxHexInput"
+          rows="6"
+          placeholder="Paste raw transaction hex"
+        ></textarea>
+        <pre id="rawTxDecodedOutput" aria-live="polite"></pre>
+      </section>
     </section>
   </main>
   <script>
