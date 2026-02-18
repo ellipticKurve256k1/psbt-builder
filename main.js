@@ -936,6 +936,7 @@ function initPageMenu() {
   const openDecoderPageButton = document.getElementById("openDecoderPage");
   const rawTxIdInput = document.getElementById("rawTxIdInput");
   const fetchRawTxButton = document.getElementById("fetchRawTxButton");
+  const clearRawTxButton = document.getElementById("clearRawTxButton");
   const rawTxFetchStatus = document.getElementById("rawTxFetchStatus");
   const rawTxHexInput = document.getElementById("rawTxHexInput");
 
@@ -946,6 +947,7 @@ function initPageMenu() {
     !openDecoderPageButton ||
     !rawTxIdInput ||
     !fetchRawTxButton ||
+    !clearRawTxButton ||
     !rawTxFetchStatus ||
     !rawTxHexInput
   ) {
@@ -1015,6 +1017,14 @@ function initPageMenu() {
   });
   fetchRawTxButton.addEventListener("click", () => {
     void loadRawTxFromTxid();
+  });
+  clearRawTxButton.addEventListener("click", () => {
+    requestCounter += 1;
+    fetchRawTxButton.disabled = false;
+    rawTxIdInput.value = "";
+    rawTxHexInput.value = "";
+    setFetchStatus("", false);
+    renderRawTxSegments("");
   });
 
   renderRawTxSegments(rawTxHexInput.value);
