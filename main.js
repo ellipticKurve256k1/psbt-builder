@@ -886,11 +886,57 @@ function renderRawTxSegments(rawValue) {
   }
 }
 
+function isValidTxid(txid) {
+  return /^[0-9a-fA-F]{64}$/.test(String(txid || "").trim());
+}
+
+function isValidHexPayload(value) {
+  return /^[0-9a-f]+$/.test(value) && value.length % 2 === 0;
+}
+
+async function fetchRawTxHexFromMempool(txid) {
+  const normalizedTxid = String(txid || "").trim().toLowerCase();
+  let lastStatus = null;
+
+  const hexResponse = await fetch(`https://mempool.space/api/tx/${normalizedTxid}/hex`, {
+    headers: { Accept: "text/plain" },
+  });
+  if (hexResponse.ok) {
+    const payload = normalizeHexInput(await hexResponse.text());
+    if (!isValidHexPayload(payload)) {
+      throw new Error("API returned invalid hex payload.");
+    }
+    return payload;
+  }
+  lastStatus = hexResponse.status;
+
+  const txResponse = await fetch(`https://mempool.space/api/tx/${normalizedTxid}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (txResponse.ok) {
+    const data = await txResponse.json();
+    if (typeof data?.hex === "string") {
+      const payload = normalizeHexInput(data.hex);
+      if (!isValidHexPayload(payload)) {
+        throw new Error("API returned invalid hex payload.");
+      }
+      return payload;
+    }
+    throw new Error("Raw hex not found in API response.");
+  }
+  lastStatus = txResponse.status;
+
+  throw new Error(`mempool.space request failed (status ${lastStatus}).`);
+}
+
 function initPageMenu() {
   const builderPage = document.getElementById("builderPage");
   const decoderPage = document.getElementById("decoderPage");
   const openBuilderPageButton = document.getElementById("openBuilderPage");
   const openDecoderPageButton = document.getElementById("openDecoderPage");
+  const rawTxIdInput = document.getElementById("rawTxIdInput");
+  const fetchRawTxButton = document.getElementById("fetchRawTxButton");
+  const rawTxFetchStatus = document.getElementById("rawTxFetchStatus");
   const rawTxHexInput = document.getElementById("rawTxHexInput");
 
   if (
@@ -898,6 +944,9 @@ function initPageMenu() {
     !decoderPage ||
     !openBuilderPageButton ||
     !openDecoderPageButton ||
+    !rawTxIdInput ||
+    !fetchRawTxButton ||
+    !rawTxFetchStatus ||
     !rawTxHexInput
   ) {
     return;
@@ -911,10 +960,61 @@ function initPageMenu() {
     openDecoderPageButton.classList.toggle("active", !showBuilder);
   };
 
+  const setFetchStatus = (message, hasError = false) => {
+    rawTxFetchStatus.textContent = message;
+    rawTxFetchStatus.classList.toggle("error", hasError);
+  };
+
+  let requestCounter = 0;
+  const loadRawTxFromTxid = async () => {
+    const txid = rawTxIdInput.value.trim();
+    if (!isValidTxid(txid)) {
+      setFetchStatus("Enter a valid 64-character txid.", true);
+      return;
+    }
+
+    requestCounter += 1;
+    const currentRequest = requestCounter;
+    fetchRawTxButton.disabled = true;
+    setFetchStatus("Loading from mempool.space...", false);
+
+    try {
+      const rawTxHex = await fetchRawTxHexFromMempool(txid);
+      if (currentRequest !== requestCounter) return;
+      rawTxHexInput.value = rawTxHex;
+      renderRawTxSegments(rawTxHex);
+      setFetchStatus("Loaded.", false);
+    } catch (error) {
+      if (currentRequest !== requestCounter) return;
+      setFetchStatus(`Failed to load: ${error.message}`, true);
+    } finally {
+      if (currentRequest === requestCounter) {
+        fetchRawTxButton.disabled = false;
+      }
+    }
+  };
+
   openBuilderPageButton.addEventListener("click", () => setPage("builder"));
   openDecoderPageButton.addEventListener("click", () => setPage("decoder"));
   rawTxHexInput.addEventListener("input", (event) => {
     renderRawTxSegments(event.target.value);
+  });
+  rawTxIdInput.addEventListener("input", () => {
+    setFetchStatus("", false);
+  });
+  rawTxIdInput.addEventListener("change", () => {
+    if (isValidTxid(rawTxIdInput.value.trim())) {
+      void loadRawTxFromTxid();
+    }
+  });
+  rawTxIdInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void loadRawTxFromTxid();
+    }
+  });
+  fetchRawTxButton.addEventListener("click", () => {
+    void loadRawTxFromTxid();
   });
 
   renderRawTxSegments(rawTxHexInput.value);

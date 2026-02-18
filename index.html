@@ -438,6 +438,18 @@
     .tx-seg-7 { color: #f07b9a; }
     #rawTxDecodedOutput span { cursor: help; }
 
+    #rawTxFetchStatus {
+      min-height: 1.1rem;
+      margin-top: 0.35rem;
+      color: #9ec0df;
+      font-size: 0.84rem;
+    }
+
+    #rawTxFetchStatus.error {
+      color: var(--danger);
+      font-weight: 600;
+    }
+
     @media (max-width: 1050px) {
       .workspace {
         grid-template-columns: 1fr;
@@ -625,6 +637,17 @@
         <div class="card-head">
           <h2>Raw Transaction Hex Decoder</h2>
         </div>
+        <label for="rawTxIdInput">TXID</label>
+        <div class="row">
+          <input
+            id="rawTxIdInput"
+            class="grow"
+            type="text"
+            placeholder="Enter txid (64 hex chars)"
+          >
+          <button type="button" id="fetchRawTxButton">Load Raw TX</button>
+        </div>
+        <div id="rawTxFetchStatus" aria-live="polite"></div>
         <label for="rawTxHexInput">Raw Transaction Hex</label>
         <textarea
           id="rawTxHexInput"
