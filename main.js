@@ -738,93 +738,105 @@ function parseRawTxHexSegments(rawHex) {
   const segments = [];
   let offset = 0;
   const totalBytes = hex.length / 2;
-  const pushSegment = (segment) => {
-    if (segment) segments.push(segment);
+  const pushSegment = (segmentHex, label) => {
+    if (segmentHex) {
+      segments.push({ hex: segmentHex, label });
+    }
   };
 
   const version = readFixedHex(hex, offset, 4, "version");
-  pushSegment(version.segment);
+  pushSegment(version.segment, "version (4 bytes)");
   offset = version.nextOffsetBytes;
 
   let isSegwit = false;
   if (offset + 2 <= totalBytes) {
-    const markerFlag = hex.slice(offset * 2, offset * 2 + 4);
-    if (markerFlag === "0001") {
-      const markerAndFlag = readFixedHex(hex, offset, 2, "marker/flag");
-      pushSegment(markerAndFlag.segment);
-      offset = markerAndFlag.nextOffsetBytes;
+    const marker = hex.slice(offset * 2, offset * 2 + 2);
+    const flag = hex.slice(offset * 2 + 2, offset * 2 + 4);
+    if (marker === "00" && flag !== "00") {
+      const segwitMarker = readFixedHex(hex, offset, 1, "segwit marker");
+      pushSegment(segwitMarker.segment, "segwit marker (1 byte)");
+      offset = segwitMarker.nextOffsetBytes;
+
+      const segwitFlag = readFixedHex(hex, offset, 1, "segwit flag");
+      pushSegment(segwitFlag.segment, "segwit flag (1 byte)");
+      offset = segwitFlag.nextOffsetBytes;
       isSegwit = true;
     }
   }
 
   const inputCountVarInt = readVarIntHex(hex, offset, "input count");
-  pushSegment(inputCountVarInt.segment);
+  pushSegment(inputCountVarInt.segment, "input count (varint)");
   offset = inputCountVarInt.nextOffsetBytes;
   const inputCount = toSafeCount(inputCountVarInt.value, "Input count");
 
   for (let i = 0; i < inputCount; i += 1) {
-    const prevTxid = readFixedHex(hex, offset, 32, `input ${i} txid`);
-    pushSegment(prevTxid.segment);
+    const prevTxid = readFixedHex(hex, offset, 32, `input #${i} outpoint txid`);
+    pushSegment(prevTxid.segment, `input #${i} outpoint txid (32 bytes)`);
     offset = prevTxid.nextOffsetBytes;
 
-    const vout = readFixedHex(hex, offset, 4, `input ${i} vout`);
-    pushSegment(vout.segment);
+    const vout = readFixedHex(hex, offset, 4, `input #${i} outpoint index`);
+    pushSegment(vout.segment, `input #${i} outpoint index (4 bytes)`);
     offset = vout.nextOffsetBytes;
 
-    const scriptLength = readVarIntHex(hex, offset, `input ${i} script length`);
-    pushSegment(scriptLength.segment);
+    const scriptLength = readVarIntHex(hex, offset, `input #${i} scriptSig length`);
+    pushSegment(scriptLength.segment, `input #${i} scriptSig length (varint)`);
     offset = scriptLength.nextOffsetBytes;
 
     const scriptBytes = toSafeCount(scriptLength.value, `Input ${i} script length`);
     if (scriptBytes > 0) {
-      const scriptSig = readFixedHex(hex, offset, scriptBytes, `input ${i} script`);
-      pushSegment(scriptSig.segment);
+      const scriptSig = readFixedHex(hex, offset, scriptBytes, `input #${i} scriptSig`);
+      pushSegment(scriptSig.segment, `input #${i} scriptSig (${scriptBytes} bytes)`);
       offset = scriptSig.nextOffsetBytes;
     }
 
-    const sequence = readFixedHex(hex, offset, 4, `input ${i} sequence`);
-    pushSegment(sequence.segment);
+    const sequence = readFixedHex(hex, offset, 4, `input #${i} sequence`);
+    pushSegment(sequence.segment, `input #${i} sequence (4 bytes)`);
     offset = sequence.nextOffsetBytes;
   }
 
   const outputCountVarInt = readVarIntHex(hex, offset, "output count");
-  pushSegment(outputCountVarInt.segment);
+  pushSegment(outputCountVarInt.segment, "output count (varint)");
   offset = outputCountVarInt.nextOffsetBytes;
   const outputCount = toSafeCount(outputCountVarInt.value, "Output count");
 
   for (let i = 0; i < outputCount; i += 1) {
-    const value = readFixedHex(hex, offset, 8, `output ${i} value`);
-    pushSegment(value.segment);
+    const value = readFixedHex(hex, offset, 8, `output #${i} value`);
+    pushSegment(value.segment, `output #${i} value (8 bytes)`);
     offset = value.nextOffsetBytes;
 
-    const scriptLength = readVarIntHex(hex, offset, `output ${i} script length`);
-    pushSegment(scriptLength.segment);
+    const scriptLength = readVarIntHex(hex, offset, `output #${i} scriptPubKey length`);
+    pushSegment(scriptLength.segment, `output #${i} scriptPubKey length (varint)`);
     offset = scriptLength.nextOffsetBytes;
 
     const scriptBytes = toSafeCount(scriptLength.value, `Output ${i} script length`);
     if (scriptBytes > 0) {
-      const script = readFixedHex(hex, offset, scriptBytes, `output ${i} script`);
-      pushSegment(script.segment);
+      const script = readFixedHex(hex, offset, scriptBytes, `output #${i} scriptPubKey`);
+      pushSegment(script.segment, `output #${i} scriptPubKey (${scriptBytes} bytes)`);
       offset = script.nextOffsetBytes;
     }
   }
 
   if (isSegwit) {
     for (let i = 0; i < inputCount; i += 1) {
-      const itemCount = readVarIntHex(hex, offset, `witness count for input ${i}`);
-      pushSegment(itemCount.segment);
+      const itemCount = readVarIntHex(hex, offset, `input #${i} witness item count`);
+      pushSegment(itemCount.segment, `input #${i} witness item count (varint)`);
       offset = itemCount.nextOffsetBytes;
       const witnessItemCount = toSafeCount(itemCount.value, `Witness count for input ${i}`);
 
       for (let j = 0; j < witnessItemCount; j += 1) {
-        const itemLength = readVarIntHex(hex, offset, `witness item length for input ${i}`);
-        pushSegment(itemLength.segment);
+        const itemLength = readVarIntHex(hex, offset, `input #${i} witness item #${j} length`);
+        pushSegment(itemLength.segment, `input #${i} witness item #${j} length (varint)`);
         offset = itemLength.nextOffsetBytes;
 
         const witnessLength = toSafeCount(itemLength.value, `Witness item length for input ${i}`);
         if (witnessLength > 0) {
-          const witnessItem = readFixedHex(hex, offset, witnessLength, `witness item for input ${i}`);
-          pushSegment(witnessItem.segment);
+          const witnessItem = readFixedHex(
+            hex,
+            offset,
+            witnessLength,
+            `input #${i} witness item #${j}`
+          );
+          pushSegment(witnessItem.segment, `input #${i} witness item #${j} (${witnessLength} bytes)`);
           offset = witnessItem.nextOffsetBytes;
         }
       }
@@ -832,7 +844,7 @@ function parseRawTxHexSegments(rawHex) {
   }
 
   const locktime = readFixedHex(hex, offset, 4, "locktime");
-  pushSegment(locktime.segment);
+  pushSegment(locktime.segment, "locktime (4 bytes)");
   offset = locktime.nextOffsetBytes;
 
   if (offset !== totalBytes) {
@@ -858,7 +870,8 @@ function renderRawTxSegments(rawValue) {
     segments.forEach((segment, index) => {
       const span = document.createElement("span");
       span.className = `tx-seg-${index % 8}`;
-      span.textContent = segment;
+      span.title = segment.label;
+      span.textContent = segment.hex;
       fragment.appendChild(span);
     });
     output.textContent = "";
@@ -866,6 +879,7 @@ function renderRawTxSegments(rawValue) {
   } catch {
     const span = document.createElement("span");
     span.className = "tx-seg-0";
+    span.title = "unparsed raw hex";
     span.textContent = compact;
     output.textContent = "";
     output.appendChild(span);
