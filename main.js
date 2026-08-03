@@ -35,7 +35,7 @@ function validateBitcoinAddress(address, network) {
 
 function colourField(el, isValid) {
   const empty = el.value.trim() === "";
-  el.style.borderColor = empty ? "#ccc" : isValid ? "green" : "red";
+  el.style.borderColor = empty ? "#3a3c40" : isValid ? "#f7931a" : "#c84838";
 }
 
 function hexToBytes(hex) {
