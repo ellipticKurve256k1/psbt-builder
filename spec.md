@@ -22,13 +22,18 @@ The `Network` selector controls address/script interpretation and PSBT network p
 Supported values:
 
 - `mainnet`
-- `testnet` (UI label is `Testnet4`)
-- `regtest`
+- `testnet`
+- `signet`
+
+Signet uses the same address and key encodings as testnet. Chain-specific raw
+transaction lookups use the Signet mempool.space endpoint.
 
 When network changes:
 
 - All existing input scriptPubKey fields are revalidated.
+- All existing output address fields are revalidated.
 - Change address validation state is re-evaluated.
+- The raw transaction summary is re-rendered for the selected network.
 
 ## 4. Inputs (UTXOs) Section
 

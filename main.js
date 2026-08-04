@@ -5,11 +5,31 @@ import * as ecc from "@bitcoin-js/tiny-secp256k1-asmjs";
 window.Buffer = Buffer;
 bitcoin.initEccLib(ecc);
 
+const NETWORK_CONFIG = Object.freeze({
+  mainnet: {
+    bitcoinNetwork: bitcoin.networks.bitcoin,
+    mempoolPath: "",
+  },
+  testnet: {
+    bitcoinNetwork: bitcoin.networks.testnet,
+    mempoolPath: "/testnet",
+  },
+  signet: {
+    // Signet and testnet use the same address and key encodings.
+    bitcoinNetwork: bitcoin.networks.testnet,
+    mempoolPath: "/signet",
+  },
+});
+
+function getNetworkConfig(networkValue) {
+  const config = NETWORK_CONFIG[networkValue];
+  if (!config) throw new Error(`Unsupported network: ${networkValue}`);
+  return config;
+}
+
 function getSelectedNetwork() {
   const net = document.getElementById("network").value;
-  if (net === "mainnet") return bitcoin.networks.bitcoin;
-  if (net === "testnet") return bitcoin.networks.testnet;
-  return bitcoin.networks.testnet;
+  return getNetworkConfig(net).bitcoinNetwork;
 }
 
 function validateBitcoinAddress(address, network) {
@@ -282,6 +302,9 @@ function addOutput(_, address = "", value = "") {
 function refreshAllScriptLabels() {
   document
     .querySelectorAll(".script-input")
+    .forEach((input) => input.dispatchEvent(new Event("input")));
+  document
+    .querySelectorAll(".output-address")
     .forEach((input) => input.dispatchEvent(new Event("input")));
   validateChangeAddr();
 }
@@ -1051,9 +1074,8 @@ function isValidHexPayload(value) {
 }
 
 function getMempoolTxApiBase(networkValue, txid) {
-  const normalizedNetwork = networkValue === "testnet" ? "testnet" : "mainnet";
-  const networkPath = normalizedNetwork === "testnet" ? "/testnet" : "";
-  return `https://mempool.space${networkPath}/api/tx/${txid}`;
+  const { mempoolPath } = getNetworkConfig(networkValue);
+  return `https://mempool.space${mempoolPath}/api/tx/${txid}`;
 }
 
 async function fetchRawTxHexFromMempool(txid, networkValue = "mainnet") {
@@ -1145,7 +1167,7 @@ function initPageMenu() {
       return;
     }
 
-    const selectedNetworkValue = networkSelect.value === "testnet" ? "testnet" : "mainnet";
+    const selectedNetworkValue = networkSelect.value;
 
     requestCounter += 1;
     const currentRequest = requestCounter;
