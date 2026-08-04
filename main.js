@@ -1551,6 +1551,259 @@ document.getElementById("txVersion").addEventListener("input", updateFeeCalc);
 document.getElementById("txLocktime").addEventListener("input", updateFeeCalc);
 document.getElementById("sighashType").addEventListener("change", updateFeeCalc);
 
+const feeCalculatorDialog = document.getElementById("feeCalculatorDialog");
+const calculatorOutputList = document.getElementById("calculatorOutputList");
+const calculatorFeeInput = document.getElementById("calculatorFee");
+const calculatorError = document.getElementById("feeCalculatorError");
+const calculatorApplyButton = document.getElementById("applyFeeCalculator");
+const calculatorTotalInputs = document.getElementById("calculatorTotalInputs");
+const calculatorTotalOutputs = document.getElementById("calculatorTotalOutputs");
+const calculatorFeePreview = document.getElementById("calculatorFeePreview");
+const SATOSHIS_PER_BTC = 100000000n;
+const MAX_SAFE_SATOSHIS = BigInt(Number.MAX_SAFE_INTEGER);
+let feeCalculatorState = null;
+
+function parseCalculatorBtc(rawValue, fieldName) {
+  const value = String(rawValue ?? "").trim();
+  if (!value) throw new Error(`${fieldName} is required.`);
+  if (!/^(?:\d+(?:\.\d{0,8})?|\.\d{1,8})$/.test(value)) {
+    throw new Error(`${fieldName} must be a non-negative BTC amount with up to 8 decimals.`);
+  }
+
+  const [wholePart = "0", fractionPart = ""] = value.split(".");
+  const whole = BigInt(wholePart || "0");
+  const fraction = BigInt(fractionPart.padEnd(8, "0") || "0");
+  const satoshis = whole * SATOSHIS_PER_BTC + fraction;
+  if (satoshis > MAX_SAFE_SATOSHIS) throw new Error(`${fieldName} is too large.`);
+  return satoshis;
+}
+
+function formatCalculatorBtc(satoshis) {
+  const isNegative = satoshis < 0n;
+  const absolute = isNegative ? -satoshis : satoshis;
+  const whole = absolute / SATOSHIS_PER_BTC;
+  const fraction = (absolute % SATOSHIS_PER_BTC).toString().padStart(8, "0");
+  return `${isNegative ? "-" : ""}${whole.toString()}.${fraction}`;
+}
+
+function setFeeCalculatorError(message = "") {
+  calculatorError.textContent = message;
+  calculatorApplyButton.disabled = !!message;
+}
+
+function setFeeCalculatorPreview(totalOutputSats = null, feeSats = null) {
+  const totalInputSats = feeCalculatorState?.totalInputSats;
+  calculatorTotalInputs.textContent = typeof totalInputSats === "bigint"
+    ? `${formatCalculatorBtc(totalInputSats)} BTC`
+    : "—";
+  calculatorTotalOutputs.textContent = totalOutputSats === null
+    ? "—"
+    : `${formatCalculatorBtc(totalOutputSats)} BTC`;
+  calculatorFeePreview.textContent = feeSats === null
+    ? "—"
+    : `${formatCalculatorBtc(feeSats)} BTC`;
+}
+
+function getCalculatorOutputFields() {
+  return Array.from(calculatorOutputList.querySelectorAll(".calculator-output-value"));
+}
+
+function readAllCalculatorOutputs() {
+  return getCalculatorOutputFields().map((field, index) =>
+    parseCalculatorBtc(field.value, `Output #${index + 1}`)
+  );
+}
+
+function recalculateFeeCalculator(source) {
+  if (!feeCalculatorState || feeCalculatorState.totalInputSats === null) {
+    setFeeCalculatorPreview();
+    setFeeCalculatorError(feeCalculatorState?.inputError || "Enter valid input values first.");
+    return;
+  }
+
+  const outputFields = getCalculatorOutputFields();
+  const balancingIndex = feeCalculatorState.balancingIndex;
+
+  try {
+    let outputValues;
+    let feeSats;
+
+    if (source === "balancing-output") {
+      outputValues = readAllCalculatorOutputs();
+      const totalOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
+      feeSats = feeCalculatorState.totalInputSats - totalOutputSats;
+      calculatorFeeInput.value = formatCalculatorBtc(feeSats);
+    } else {
+      feeSats = parseCalculatorBtc(calculatorFeeInput.value, "Transaction fee");
+      outputValues = outputFields.map((field, index) =>
+        index === balancingIndex
+          ? 0n
+          : parseCalculatorBtc(field.value, `Output #${index + 1}`)
+      );
+      const fixedOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
+      const balancingValue = feeCalculatorState.totalInputSats - feeSats - fixedOutputSats;
+      outputValues[balancingIndex] = balancingValue;
+      outputFields[balancingIndex].value = formatCalculatorBtc(balancingValue);
+    }
+
+    const totalOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
+    setFeeCalculatorPreview(totalOutputSats, feeSats);
+
+    if (feeSats < 0n) {
+      setFeeCalculatorError("Outputs exceed total inputs. Reduce an output amount.");
+      return;
+    }
+    if (outputValues.some((value) => value < 0n)) {
+      setFeeCalculatorError("The selected balancing output would be negative.");
+      return;
+    }
+    if (totalOutputSats + feeSats !== feeCalculatorState.totalInputSats) {
+      setFeeCalculatorError("Outputs and fee do not balance with total inputs.");
+      return;
+    }
+
+    setFeeCalculatorError();
+  } catch (error) {
+    setFeeCalculatorPreview();
+    setFeeCalculatorError(error.message);
+  }
+}
+
+function renderFeeCalculatorOutputs(outputRows) {
+  calculatorOutputList.textContent = "";
+
+  outputRows.forEach((row, index) => {
+    const addressInput = row.querySelector(".output-address");
+    const valueInput = row.querySelectorAll("input")[1];
+    const outputRow = document.createElement("div");
+    outputRow.className = "fee-output-row";
+
+    const description = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "fee-output-name";
+    name.textContent = index === feeCalculatorState.balancingIndex
+      ? `Output #${index + 1} (auto-adjusted)`
+      : `Output #${index + 1}`;
+    const address = document.createElement("span");
+    address.className = "fee-output-address";
+    address.textContent = addressInput?.value.trim() || "No address entered";
+    description.append(name, address);
+
+    const calculatorValue = document.createElement("input");
+    calculatorValue.type = "text";
+    calculatorValue.inputMode = "decimal";
+    calculatorValue.autocomplete = "off";
+    calculatorValue.className = "calculator-output-value";
+    calculatorValue.value = valueInput?.value ?? "";
+    calculatorValue.setAttribute("aria-label", `Output #${index + 1} value in BTC`);
+
+    calculatorValue.addEventListener("input", () => {
+      recalculateFeeCalculator(
+        index === feeCalculatorState.balancingIndex ? "balancing-output" : "fixed-fee"
+      );
+    });
+
+    outputRow.append(description, calculatorValue);
+    calculatorOutputList.appendChild(outputRow);
+  });
+}
+
+function openFeeCalculator() {
+  const inputFields = Array.from(document.querySelectorAll("[data-utxo] .value-input"));
+  const outputRows = Array.from(document.querySelectorAll("[data-output]"));
+  let totalInputSats = null;
+  let inputError = "";
+
+  try {
+    if (inputFields.length === 0) throw new Error("Add at least one input first.");
+    totalInputSats = inputFields.reduce(
+      (sum, field, index) => sum + parseCalculatorBtc(field.value, `Input #${index + 1}`),
+      0n
+    );
+    if (totalInputSats > MAX_SAFE_SATOSHIS) throw new Error("Total inputs are too large.");
+  } catch (error) {
+    inputError = error.message;
+  }
+
+  feeCalculatorState = {
+    totalInputSats,
+    inputError,
+    outputRows,
+    balancingIndex: Math.max(0, outputRows.length - 1),
+  };
+  renderFeeCalculatorOutputs(outputRows);
+
+  if (outputRows.length === 0) {
+    calculatorFeeInput.value = "";
+    setFeeCalculatorPreview();
+    setFeeCalculatorError("Add at least one output first.");
+  } else if (totalInputSats === null) {
+    calculatorFeeInput.value = "";
+    recalculateFeeCalculator("balancing-output");
+  } else {
+    try {
+      const outputValues = readAllCalculatorOutputs();
+      const totalOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
+      calculatorFeeInput.value = formatCalculatorBtc(totalInputSats - totalOutputSats);
+      recalculateFeeCalculator("balancing-output");
+    } catch (error) {
+      calculatorFeeInput.value = "";
+      setFeeCalculatorPreview();
+      setFeeCalculatorError(error.message);
+    }
+  }
+
+  feeCalculatorDialog.showModal();
+  calculatorFeeInput.focus();
+}
+
+function applyFeeCalculator() {
+  if (!feeCalculatorState) return;
+
+  try {
+    const outputValues = readAllCalculatorOutputs();
+    const feeSats = parseCalculatorBtc(calculatorFeeInput.value, "Transaction fee");
+    const totalOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
+    if (totalOutputSats + feeSats !== feeCalculatorState.totalInputSats) {
+      throw new Error("Outputs and fee do not balance with total inputs.");
+    }
+
+    const currentRows = Array.from(document.querySelectorAll("[data-output]"));
+    if (currentRows.length !== feeCalculatorState.outputRows.length) {
+      throw new Error("The output list changed. Reopen the calculator.");
+    }
+
+    currentRows.forEach((row, index) => {
+      const valueInput = row.querySelectorAll("input")[1];
+      valueInput.value = formatCalculatorBtc(outputValues[index]);
+      valueInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    feeCalculatorDialog.close("apply");
+  } catch (error) {
+    setFeeCalculatorError(error.message);
+  }
+}
+
+document.getElementById("openFeeCalculator").addEventListener("click", openFeeCalculator);
+document.getElementById("cancelFeeCalculator").addEventListener("click", () => {
+  feeCalculatorDialog.close("cancel");
+});
+calculatorFeeInput.addEventListener("input", () => recalculateFeeCalculator("fixed-fee"));
+calculatorApplyButton.addEventListener("click", applyFeeCalculator);
+feeCalculatorDialog.addEventListener("click", (event) => {
+  const bounds = feeCalculatorDialog.getBoundingClientRect();
+  const outsideDialog =
+    event.clientX < bounds.left ||
+    event.clientX > bounds.right ||
+    event.clientY < bounds.top ||
+    event.clientY > bounds.bottom;
+  if (outsideDialog) feeCalculatorDialog.close("cancel");
+});
+feeCalculatorDialog.addEventListener("close", () => {
+  feeCalculatorState = null;
+});
+
 initPageMenu();
 addInput();
 addOutput();

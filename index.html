@@ -859,6 +859,25 @@
       color: #efedeb;
     }
 
+    .summary-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 0.75rem;
+    }
+
+    .summary-title-row .summary-title {
+      margin-bottom: 0;
+    }
+
+    #openFeeCalculator {
+      width: auto;
+      padding: 0.48rem 0.75rem;
+      border-color: #744812;
+      font-size: 0.82rem;
+    }
+
     .summary-grid {
       color: #c4c1c1;
       gap: 0.45rem;
@@ -966,6 +985,138 @@
       color: #b79f83;
     }
 
+    .fee-calculator-dialog {
+      width: min(720px, calc(100vw - 24px));
+      max-height: min(820px, calc(100vh - 24px));
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid #6f4517;
+      border-radius: 14px;
+      color: #e9e6e2;
+      background: #151719;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.62);
+    }
+
+    .fee-calculator-dialog::backdrop {
+      background: rgba(3, 4, 5, 0.76);
+      backdrop-filter: blur(3px);
+    }
+
+    .fee-calculator-shell {
+      display: flex;
+      max-height: min(820px, calc(100vh - 24px));
+      flex-direction: column;
+    }
+
+    .fee-calculator-head,
+    .fee-calculator-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 22px;
+    }
+
+    .fee-calculator-head {
+      border-bottom: 1px solid #39332d;
+    }
+
+    .fee-calculator-head h2 {
+      margin: 0;
+      color: #f5f1ed;
+      font-size: 1.2rem;
+    }
+
+    .fee-calculator-body {
+      padding: 20px 22px;
+      overflow-y: auto;
+    }
+
+    .fee-calculator-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .fee-calculator-stat {
+      padding: 12px;
+      border: 1px solid #37332f;
+      border-radius: 8px;
+      background: #1b1d1f;
+    }
+
+    .fee-calculator-stat span,
+    .fee-output-address {
+      display: block;
+      overflow: hidden;
+      color: #a9a39d;
+      font-size: 0.78rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fee-calculator-stat strong {
+      display: block;
+      margin-top: 5px;
+      color: #f4f0ec;
+      font-size: 0.92rem;
+    }
+
+    .fee-output-list {
+      display: grid;
+      gap: 10px;
+      margin: 10px 0 18px;
+    }
+
+    .fee-output-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(150px, 0.42fr);
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid #37332f;
+      border-radius: 8px;
+      background: #191b1d;
+    }
+
+    .fee-output-name {
+      color: #ebe7e3;
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .fee-output-row input[type="text"],
+    #calculatorFee {
+      margin: 0;
+    }
+
+    .fee-calculator-field {
+      margin-top: 14px;
+    }
+
+    .fee-calculator-error {
+      min-height: 1.25rem;
+      margin-top: 12px;
+      color: #e16b5c;
+      font-size: 0.86rem;
+    }
+
+    .fee-calculator-actions {
+      justify-content: flex-end;
+      border-top: 1px solid #39332d;
+    }
+
+    .fee-calculator-actions button {
+      width: auto;
+      min-width: 100px;
+    }
+
+    #applyFeeCalculator {
+      border-color: #e57d00;
+      background: linear-gradient(180deg, #ff990d, #d96500);
+    }
+
     @media (max-width: 1050px) {
       .workspace {
         grid-template-columns: 1fr;
@@ -1029,6 +1180,25 @@
       .menu-button.active,
       .head-action {
         box-shadow: none;
+      }
+
+      .fee-calculator-summary {
+        grid-template-columns: 1fr;
+      }
+
+      .fee-output-row {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .fee-output-row > input[type="text"] {
+        grid-column: auto;
+      }
+
+      .fee-calculator-head,
+      .fee-calculator-body,
+      .fee-calculator-actions {
+        padding-right: 15px;
+        padding-left: 15px;
       }
     }
   </style>
@@ -1137,7 +1307,10 @@
           </section>
 
           <section id="balanceTracker" class="card">
-            <div class="summary-title">Balance Summary</div>
+            <div class="summary-title-row">
+              <div class="summary-title">Balance Summary</div>
+              <button type="button" id="openFeeCalculator">Fee Calculator</button>
+            </div>
             <div class="summary-grid">
               <div class="summary-row">
                 <span>Total Inputs:</span>
@@ -1211,6 +1384,45 @@
       </section>
     </section>
   </main>
+
+  <dialog id="feeCalculatorDialog" class="fee-calculator-dialog" aria-labelledby="feeCalculatorTitle">
+    <div class="fee-calculator-shell">
+      <header class="fee-calculator-head">
+        <h2 id="feeCalculatorTitle">Fee Calculator</h2>
+        <span class="hint">The last output automatically absorbs fee adjustments.</span>
+      </header>
+      <div class="fee-calculator-body">
+        <div class="fee-calculator-summary">
+          <div class="fee-calculator-stat">
+            <span>Total Inputs</span>
+            <strong id="calculatorTotalInputs">—</strong>
+          </div>
+          <div class="fee-calculator-stat">
+            <span>Total Outputs</span>
+            <strong id="calculatorTotalOutputs">—</strong>
+          </div>
+          <div class="fee-calculator-stat">
+            <span>Fee</span>
+            <strong id="calculatorFeePreview">—</strong>
+          </div>
+        </div>
+
+        <label>Output values (BTC)</label>
+        <div id="calculatorOutputList" class="fee-output-list"></div>
+
+        <div class="fee-calculator-field">
+          <label for="calculatorFee">Transaction fee (BTC)</label>
+          <input id="calculatorFee" type="text" inputmode="decimal" autocomplete="off">
+          <div class="hint">Editing the fee adjusts the selected output. Editing that output adjusts the fee.</div>
+        </div>
+        <div id="feeCalculatorError" class="fee-calculator-error" role="alert" aria-live="polite"></div>
+      </div>
+      <footer class="fee-calculator-actions">
+        <button type="button" id="cancelFeeCalculator">Cancel</button>
+        <button type="button" id="applyFeeCalculator">Apply</button>
+      </footer>
+    </div>
+  </dialog>
   <script>
     (function () {
       const maxBytes = 83;

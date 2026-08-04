@@ -193,6 +193,21 @@ In this active mode:
 
 Realtime updates run on input/output edits.
 
+### 8.1 Fee Calculator
+
+- `Fee Calculator` opens a modal using the current input and output amounts.
+- Total inputs are read-only; every standard output amount and the absolute fee
+  are editable in BTC.
+- The last output is always the balancing output and is labeled as auto-adjusted.
+- Editing the fee or another output adjusts the balancing output. Editing the
+  balancing output adjusts the fee.
+- Calculations use integer satoshis and accept at most 8 BTC decimal places.
+- Invalid, negative, or unbalanced values disable `Apply` and show an inline
+  error.
+- `Apply` copies output amounts back to the form and refreshes the balance
+  summary. `Cancel`, Escape, and backdrop close discard modal changes.
+- Output addresses, ordering, and row count are not changed by the calculator.
+
 ## 9. Hidden/Inactive Change-Output Mode (Implemented but not user-exposed)
 
 Code includes a change-address + fee-rate flow behind hidden controls:
