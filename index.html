@@ -1034,9 +1034,33 @@
 
     .fee-calculator-summary {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 10px;
       margin-bottom: 18px;
+    }
+
+    .fee-calculator-modes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 18px;
+      padding: 4px;
+      border: 1px solid #37332f;
+      border-radius: 9px;
+      background: #111315;
+    }
+
+    .fee-calculator-modes button {
+      width: 100%;
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .fee-calculator-modes button.active {
+      border-color: #8a541b;
+      color: #fff;
+      background: linear-gradient(180deg, #7f4b13, #58310a);
     }
 
     .fee-calculator-stat {
@@ -1087,8 +1111,17 @@
     }
 
     .fee-output-row input[type="text"],
-    #calculatorFee {
+    #calculatorFee,
+    #calculatorFeeRate {
       margin: 0;
+    }
+
+    .calculator-output-value[readonly],
+    #calculatorFee[readonly] {
+      border-color: #514435;
+      color: #d4c2ab;
+      background: #121416;
+      cursor: not-allowed;
     }
 
     .fee-calculator-field {
@@ -1405,15 +1438,34 @@
             <span>Fee</span>
             <strong id="calculatorFeePreview">—</strong>
           </div>
+          <div class="fee-calculator-stat">
+            <span>Estimated vsize</span>
+            <strong id="calculatorVsize">—</strong>
+          </div>
+        </div>
+
+        <div class="fee-calculator-modes" role="group" aria-label="Fee calculation mode">
+          <button type="button" id="calculatorAbsoluteMode" class="active" aria-pressed="true">
+            Absolute Fee
+          </button>
+          <button type="button" id="calculatorRateMode" aria-pressed="false">
+            Fee Rate
+          </button>
         </div>
 
         <label>Output values (BTC)</label>
         <div id="calculatorOutputList" class="fee-output-list"></div>
 
+        <div id="calculatorRateField" class="fee-calculator-field" hidden>
+          <label for="calculatorFeeRate">Fee rate (sat/vB)</label>
+          <input id="calculatorFeeRate" type="text" inputmode="decimal" autocomplete="off">
+          <div class="hint">The estimated fee is rounded up to a whole satoshi.</div>
+        </div>
+
         <div class="fee-calculator-field">
           <label for="calculatorFee">Transaction fee (BTC)</label>
           <input id="calculatorFee" type="text" inputmode="decimal" autocomplete="off">
-          <div class="hint">Editing the fee adjusts the selected output. Editing that output adjusts the fee.</div>
+          <div id="calculatorFeeHint" class="hint">Editing the fee adjusts the last output. Editing that output adjusts the fee.</div>
         </div>
         <div id="feeCalculatorError" class="fee-calculator-error" role="alert" aria-live="polite"></div>
       </div>

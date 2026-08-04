@@ -1559,7 +1559,14 @@ const calculatorApplyButton = document.getElementById("applyFeeCalculator");
 const calculatorTotalInputs = document.getElementById("calculatorTotalInputs");
 const calculatorTotalOutputs = document.getElementById("calculatorTotalOutputs");
 const calculatorFeePreview = document.getElementById("calculatorFeePreview");
+const calculatorVsize = document.getElementById("calculatorVsize");
+const calculatorAbsoluteMode = document.getElementById("calculatorAbsoluteMode");
+const calculatorRateMode = document.getElementById("calculatorRateMode");
+const calculatorRateField = document.getElementById("calculatorRateField");
+const calculatorFeeRateInput = document.getElementById("calculatorFeeRate");
+const calculatorFeeHint = document.getElementById("calculatorFeeHint");
 const SATOSHIS_PER_BTC = 100000000n;
+const FEE_RATE_SCALE = 100000000n;
 const MAX_SAFE_SATOSHIS = BigInt(Number.MAX_SAFE_INTEGER);
 let feeCalculatorState = null;
 
@@ -1586,6 +1593,93 @@ function formatCalculatorBtc(satoshis) {
   return `${isNegative ? "-" : ""}${whole.toString()}.${fraction}`;
 }
 
+function parseCalculatorFeeRate(rawValue) {
+  const value = String(rawValue ?? "").trim();
+  if (!value) throw new Error("Fee rate is required.");
+  if (!/^(?:\d+(?:\.\d{0,8})?|\.\d{1,8})$/.test(value)) {
+    throw new Error("Fee rate must be a non-negative sat/vB amount with up to 8 decimals.");
+  }
+
+  const [wholePart = "0", fractionPart = ""] = value.split(".");
+  return BigInt(wholePart || "0") * FEE_RATE_SCALE
+    + BigInt(fractionPart.padEnd(8, "0") || "0");
+}
+
+function formatCalculatorFeeRate(scaledRate) {
+  const whole = scaledRate / FEE_RATE_SCALE;
+  const fraction = (scaledRate % FEE_RATE_SCALE)
+    .toString()
+    .padStart(8, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole.toString()}.${fraction}` : whole.toString();
+}
+
+function compactSizeLength(value) {
+  if (value < 0xfd) return 1;
+  if (value <= 0xffff) return 3;
+  if (value <= 0xffffffff) return 5;
+  return 9;
+}
+
+function getCalculatorOpReturnScript() {
+  if (!document.getElementById("includeOpReturn").checked) return null;
+
+  const message = document.getElementById("opReturnMessage").value.trim();
+  if (!message) throw new Error("Enter an OP_RETURN message before estimating vsize.");
+
+  let data;
+  if (/^0x/i.test(message)) {
+    const hexData = message.slice(2);
+    if (!hexData || !/^[0-9a-fA-F]+$/.test(hexData) || hexData.length % 2 !== 0) {
+      throw new Error("OP_RETURN hex data must contain complete bytes.");
+    }
+    data = Buffer.from(hexData, "hex");
+  } else {
+    data = Buffer.from(message, "utf8");
+  }
+  if (data.length > 83) throw new Error("OP_RETURN data exceeds 83 bytes.");
+
+  return bitcoin.script.compile([bitcoin.opcodes.OP_RETURN, data]);
+}
+
+function estimateCalculatorVirtualSize() {
+  if (!feeCalculatorState) throw new Error("Fee calculator is not open.");
+
+  const inputCount = document.querySelectorAll("[data-utxo]").length;
+  if (inputCount === 0) throw new Error("Add at least one input before estimating vsize.");
+
+  const network = getSelectedNetwork();
+  const outputScripts = feeCalculatorState.outputRows.map((row, index) => {
+    const address = row.querySelector(".output-address")?.value.trim();
+    if (!address) throw new Error(`Output #${index + 1} address is required for fee-rate mode.`);
+    try {
+      return bitcoin.address.toOutputScript(address, network);
+    } catch {
+      throw new Error(`Output #${index + 1} has an invalid address for the selected network.`);
+    }
+  });
+
+  const opReturnScript = getCalculatorOpReturnScript();
+  if (opReturnScript) outputScripts.push(opReturnScript);
+
+  const outputCount = outputScripts.length;
+  const outputsSize = outputScripts.reduce(
+    (sum, script) => sum + 8 + compactSizeLength(script.length) + script.length,
+    0
+  );
+  const strippedSize =
+    4
+    + compactSizeLength(inputCount)
+    + inputCount * 41
+    + compactSizeLength(outputCount)
+    + outputsSize
+    + 4;
+
+  // Marker/flag plus a conservative 109-byte signed P2WPKH witness per input.
+  const witnessSize = 2 + inputCount * 109;
+  return Math.ceil((strippedSize * 4 + witnessSize) / 4);
+}
+
 function setFeeCalculatorError(message = "") {
   calculatorError.textContent = message;
   calculatorApplyButton.disabled = !!message;
@@ -1602,6 +1696,9 @@ function setFeeCalculatorPreview(totalOutputSats = null, feeSats = null) {
   calculatorFeePreview.textContent = feeSats === null
     ? "—"
     : `${formatCalculatorBtc(feeSats)} BTC`;
+  calculatorVsize.textContent = Number.isInteger(feeCalculatorState?.estimatedVsize)
+    ? `${feeCalculatorState.estimatedVsize} vB`
+    : "—";
 }
 
 function getCalculatorOutputFields() {
@@ -1614,6 +1711,78 @@ function readAllCalculatorOutputs() {
   );
 }
 
+function updateFeeCalculatorModeUi() {
+  const isRateMode = feeCalculatorState?.mode === "rate";
+  calculatorAbsoluteMode.classList.toggle("active", !isRateMode);
+  calculatorAbsoluteMode.setAttribute("aria-pressed", String(!isRateMode));
+  calculatorRateMode.classList.toggle("active", isRateMode);
+  calculatorRateMode.setAttribute("aria-pressed", String(isRateMode));
+  calculatorRateField.hidden = !isRateMode;
+  calculatorFeeInput.readOnly = isRateMode;
+  calculatorFeeHint.textContent = isRateMode
+    ? "Calculated from sat/vB and estimated vsize."
+    : "Editing the fee adjusts the last output. Editing that output adjusts the fee.";
+
+  getCalculatorOutputFields().forEach((field, index) => {
+    field.readOnly = isRateMode && index === feeCalculatorState.balancingIndex;
+  });
+}
+
+function validateCalculatorBalance(outputValues, feeSats) {
+  const totalOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
+  setFeeCalculatorPreview(totalOutputSats, feeSats);
+
+  if (feeSats < 0n) {
+    throw new Error("Outputs exceed total inputs. Reduce an output amount.");
+  }
+  if (outputValues.some((value) => value < 0n)) {
+    throw new Error("The last output would be negative.");
+  }
+  if (totalOutputSats + feeSats !== feeCalculatorState.totalInputSats) {
+    throw new Error("Outputs and fee do not balance with total inputs.");
+  }
+}
+
+function recalculateRateMode() {
+  if (!feeCalculatorState || feeCalculatorState.totalInputSats === null) {
+    setFeeCalculatorPreview();
+    setFeeCalculatorError(feeCalculatorState?.inputError || "Enter valid input values first.");
+    return;
+  }
+
+  const outputFields = getCalculatorOutputFields();
+  const balancingIndex = feeCalculatorState.balancingIndex;
+
+  if (outputFields.length === 0) {
+    setFeeCalculatorPreview();
+    setFeeCalculatorError("Add at least one output first.");
+    return;
+  }
+
+  try {
+    feeCalculatorState.estimatedVsize = estimateCalculatorVirtualSize();
+    const scaledRate = parseCalculatorFeeRate(calculatorFeeRateInput.value);
+    const vsize = BigInt(feeCalculatorState.estimatedVsize);
+    const feeSats = (scaledRate * vsize + FEE_RATE_SCALE - 1n) / FEE_RATE_SCALE;
+    const outputValues = outputFields.map((field, index) =>
+      index === balancingIndex
+        ? 0n
+        : parseCalculatorBtc(field.value, `Output #${index + 1}`)
+    );
+    const fixedOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
+    const balancingValue = feeCalculatorState.totalInputSats - feeSats - fixedOutputSats;
+    outputValues[balancingIndex] = balancingValue;
+    outputFields[balancingIndex].value = formatCalculatorBtc(balancingValue);
+    calculatorFeeInput.value = formatCalculatorBtc(feeSats);
+
+    validateCalculatorBalance(outputValues, feeSats);
+    setFeeCalculatorError();
+  } catch (error) {
+    setFeeCalculatorPreview();
+    setFeeCalculatorError(error.message);
+  }
+}
+
 function recalculateFeeCalculator(source) {
   if (!feeCalculatorState || feeCalculatorState.totalInputSats === null) {
     setFeeCalculatorPreview();
@@ -1623,6 +1792,11 @@ function recalculateFeeCalculator(source) {
 
   const outputFields = getCalculatorOutputFields();
   const balancingIndex = feeCalculatorState.balancingIndex;
+
+  if (feeCalculatorState.mode === "rate") {
+    recalculateRateMode();
+    return;
+  }
 
   try {
     let outputValues;
@@ -1646,27 +1820,38 @@ function recalculateFeeCalculator(source) {
       outputFields[balancingIndex].value = formatCalculatorBtc(balancingValue);
     }
 
-    const totalOutputSats = outputValues.reduce((sum, value) => sum + value, 0n);
-    setFeeCalculatorPreview(totalOutputSats, feeSats);
-
-    if (feeSats < 0n) {
-      setFeeCalculatorError("Outputs exceed total inputs. Reduce an output amount.");
-      return;
-    }
-    if (outputValues.some((value) => value < 0n)) {
-      setFeeCalculatorError("The selected balancing output would be negative.");
-      return;
-    }
-    if (totalOutputSats + feeSats !== feeCalculatorState.totalInputSats) {
-      setFeeCalculatorError("Outputs and fee do not balance with total inputs.");
-      return;
-    }
-
+    validateCalculatorBalance(outputValues, feeSats);
     setFeeCalculatorError();
   } catch (error) {
     setFeeCalculatorPreview();
     setFeeCalculatorError(error.message);
   }
+}
+
+function setFeeCalculatorMode(mode) {
+  if (!feeCalculatorState || feeCalculatorState.mode === mode) return;
+
+  if (mode === "rate") {
+    feeCalculatorState.mode = "rate";
+    updateFeeCalculatorModeUi();
+    try {
+      const feeSats = parseCalculatorBtc(calculatorFeeInput.value, "Transaction fee");
+      feeCalculatorState.estimatedVsize = estimateCalculatorVirtualSize();
+      const vsize = BigInt(feeCalculatorState.estimatedVsize);
+      const scaledRate = (feeSats * FEE_RATE_SCALE + vsize - 1n) / vsize;
+      calculatorFeeRateInput.value = formatCalculatorFeeRate(scaledRate);
+      recalculateRateMode();
+    } catch (error) {
+      feeCalculatorState.estimatedVsize = null;
+      setFeeCalculatorPreview();
+      setFeeCalculatorError(error.message);
+    }
+    return;
+  }
+
+  feeCalculatorState.mode = "absolute";
+  updateFeeCalculatorModeUi();
+  recalculateFeeCalculator("balancing-output");
 }
 
 function renderFeeCalculatorOutputs(outputRows) {
@@ -1730,8 +1915,20 @@ function openFeeCalculator() {
     inputError,
     outputRows,
     balancingIndex: Math.max(0, outputRows.length - 1),
+    mode: "absolute",
+    estimatedVsize: null,
   };
   renderFeeCalculatorOutputs(outputRows);
+  calculatorFeeRateInput.value = "";
+  updateFeeCalculatorModeUi();
+
+  if (outputRows.length > 0) {
+    try {
+      feeCalculatorState.estimatedVsize = estimateCalculatorVirtualSize();
+    } catch {
+      feeCalculatorState.estimatedVsize = null;
+    }
+  }
 
   if (outputRows.length === 0) {
     calculatorFeeInput.value = "";
@@ -1790,6 +1987,9 @@ document.getElementById("cancelFeeCalculator").addEventListener("click", () => {
   feeCalculatorDialog.close("cancel");
 });
 calculatorFeeInput.addEventListener("input", () => recalculateFeeCalculator("fixed-fee"));
+calculatorFeeRateInput.addEventListener("input", recalculateRateMode);
+calculatorAbsoluteMode.addEventListener("click", () => setFeeCalculatorMode("absolute"));
+calculatorRateMode.addEventListener("click", () => setFeeCalculatorMode("rate"));
 calculatorApplyButton.addEventListener("click", applyFeeCalculator);
 feeCalculatorDialog.addEventListener("click", (event) => {
   const bounds = feeCalculatorDialog.getBoundingClientRect();

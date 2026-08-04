@@ -196,11 +196,21 @@ Realtime updates run on input/output edits.
 ### 8.1 Fee Calculator
 
 - `Fee Calculator` opens a modal using the current input and output amounts.
-- Total inputs are read-only; every standard output amount and the absolute fee
-  are editable in BTC.
+- Total inputs are read-only. In absolute-fee mode, every standard output amount
+  and the absolute fee are editable in BTC.
 - The last output is always the balancing output and is labeled as auto-adjusted.
 - Editing the fee or another output adjusts the balancing output. Editing the
   balancing output adjusts the fee.
+- The calculator opens in `Absolute Fee` mode and can switch to `Fee Rate` mode.
+- Fee-rate mode accepts a non-negative sat/vB value with up to 8 decimals,
+  displays an estimated vsize, and rounds the calculated fee up to a whole
+  satoshi.
+- Fee-rate mode makes the absolute fee and last output read-only. Editing the
+  rate or another output automatically recalculates both values.
+- Vsize is estimated locally from P2WPKH input witness sizing and the actual
+  serialized output script lengths, including an enabled OP_RETURN output.
+- Output addresses must be valid for the selected network before fee-rate mode
+  can estimate transaction size.
 - Calculations use integer satoshis and accept at most 8 BTC decimal places.
 - Invalid, negative, or unbalanced values disable `Apply` and show an inline
   error.
