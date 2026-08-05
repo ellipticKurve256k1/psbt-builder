@@ -142,6 +142,32 @@ function isValidTxVersion(rawValue) {
   }
 }
 
+function parseBtcToSafeSats(rawValue, fieldName) {
+  const value = String(rawValue ?? "").trim();
+  if (!/^(?:\d+(?:\.\d{0,8})?|\.\d{1,8})$/.test(value)) {
+    throw new Error(`${fieldName} must be a non-negative BTC amount with up to 8 decimals.`);
+  }
+  const [wholePart = "0", fractionPart = ""] = value.split(".");
+  const satoshis = BigInt(wholePart || "0") * 100000000n
+    + BigInt(fractionPart.padEnd(8, "0") || "0");
+  if (satoshis > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${fieldName} is too large.`);
+  }
+  return Number(satoshis);
+}
+
+function parseVout(rawValue, fieldName) {
+  const value = String(rawValue ?? "").trim();
+  if (!/^\d+$/.test(value)) {
+    throw new Error(`${fieldName} must be an unsigned decimal integer.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed > 0xffffffff) {
+    throw new Error(`${fieldName} out of range.`);
+  }
+  return parsed;
+}
+
 function optionToSighashType(optionValue, allowInherit = false) {
   if (allowInherit && optionValue === "INHERIT") return null;
   switch (optionValue) {
@@ -282,11 +308,16 @@ function addOutput(_, address = "", value = "") {
     <div class="row">
       <input class="grow output-address" placeholder="address" value="${address}">
       <input placeholder="value (BTC)" value="${value}" style="width:170px;">
-      <button type="button" class="remove" onclick="this.closest('[data-output]').remove(); updateFeeCalc();">✕</button>
+      <button type="button" class="remove">✕</button>
     </div>
   `;
 
   document.getElementById("outputContainer").appendChild(div);
+
+  div.querySelector(".remove").addEventListener("click", () => {
+    div.remove();
+    updateFeeCalc();
+  });
 
   const addressInput = div.querySelector(".output-address");
   addressInput.addEventListener("input", () => {
@@ -1239,8 +1270,10 @@ document.getElementById("createPsbt").onclick = () => {
       return alert("Only P2WPKH input scriptPubKey is allowed.");
     }
 
-    const utxos = Array.from(document.getElementById("utxoContainer").children).map(
-      (row) => {
+    const inputRows = Array.from(document.getElementById("utxoContainer").children);
+    if (inputRows.length === 0) throw new Error("Add at least one input.");
+    const utxos = inputRows.map(
+      (row, index) => {
         const txidInput = row.querySelector(".txid-input");
         const voutInput = row.querySelector(".vout-input");
         const sequenceInput = row.querySelector(".sequence-input");
@@ -1248,11 +1281,13 @@ document.getElementById("createPsbt").onclick = () => {
         const scriptInput = row.querySelector(".script-input");
         const inputSighashOption = row.querySelector(".input-sighash").value;
         const maybeInputSighash = optionToSighashType(inputSighashOption, true);
+        const txid = txidInput.value.trim();
+        if (!isValidTxid(txid)) throw new Error(`Input #${index + 1} txid must be 64 hex characters.`);
         return {
-          txid: txidInput.value.trim(),
-          vout: parseInt(voutInput.value, 10),
+          txid,
+          vout: parseVout(voutInput.value, `Input #${index + 1} vout`),
           sequenceHex: sequenceInput.value.trim(),
-          value: Math.round(parseFloat(valueInput.value) * 1e8),
+          value: parseBtcToSafeSats(valueInput.value, `Input #${index + 1} value`),
           scriptPubKey: scriptInput.value.trim(),
           inputSighashOption,
           sighashType: maybeInputSighash === null ? undefined : maybeInputSighash,
@@ -1260,12 +1295,18 @@ document.getElementById("createPsbt").onclick = () => {
       }
     );
 
-    const outputs = Array.from(document.getElementById("outputContainer").children).map(
-      (row) => {
+    const outputRows = Array.from(document.getElementById("outputContainer").children);
+    if (outputRows.length === 0) throw new Error("Add at least one output.");
+    const outputs = outputRows.map(
+      (row, index) => {
         const [addressInput, valueInput] = row.querySelectorAll("input");
+        const address = addressInput.value.trim();
+        if (!validateBitcoinAddress(address, network)) {
+          throw new Error(`Output #${index + 1} has an invalid address for the selected network.`);
+        }
         return {
-          address: addressInput.value.trim(),
-          value: Math.round(parseFloat(valueInput.value) * 1e8),
+          address,
+          value: parseBtcToSafeSats(valueInput.value, `Output #${index + 1} value`),
         };
       }
     );
@@ -1282,7 +1323,7 @@ document.getElementById("createPsbt").onclick = () => {
       const message = document.getElementById("opReturnMessage").value.trim();
       if (!message) return alert("Enter an OP_RETURN message.");
 
-      if (message.startsWith("0x")) {
+      if (/^0x/i.test(message)) {
         const hexData = message.slice(2);
         if (!/^[0-9a-fA-F]*$/.test(hexData)) return alert("Invalid hex data.");
         opReturnData = Buffer.from(hexData, "hex");
@@ -1329,6 +1370,7 @@ document.getElementById("createPsbt").onclick = () => {
       const totalIn = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
       const totalOut = outputs.reduce((sum, output) => sum + output.value, 0);
       fee = totalIn - totalOut;
+      if (fee < 0) return alert("Outputs exceed inputs!");
       psbt = createPsbtFromInputs(
         utxos,
         outputs,
@@ -1542,6 +1584,51 @@ toggleChangeMode();
 document.getElementById("includeOpReturn").addEventListener("change", (event) => {
   document.getElementById("opReturnGroup").style.display = event.target.checked ? "" : "none";
 });
+
+const OP_RETURN_MAX_BYTES = 83;
+const opReturnMessageInput = document.getElementById("opReturnMessage");
+const opReturnByteStatus = document.getElementById("opReturnByteStatus");
+const createPsbtButton = document.getElementById("createPsbt");
+
+function getOpReturnByteState(value) {
+  if (/^0x/i.test(value)) {
+    const hexData = value.slice(2);
+    if (!hexData) return { bytes: 0, error: "" };
+    if (!/^[0-9a-fA-F]*$/.test(hexData)) return { bytes: 0, error: "Invalid hex data." };
+    if (hexData.length % 2 !== 0) return { bytes: 0, error: "Hex length must be even." };
+    return { bytes: hexData.length / 2, error: "" };
+  }
+  return { bytes: new TextEncoder().encode(value).length, error: "" };
+}
+
+function updateOpReturnState() {
+  const includeOpReturn = document.getElementById("includeOpReturn");
+  const enabled = includeOpReturn.checked;
+  const state = getOpReturnByteState(opReturnMessageInput.value.trim());
+  const tooLarge = state.bytes > OP_RETURN_MAX_BYTES;
+  const hasError = enabled && (tooLarge || !!state.error);
+
+  if (!enabled) {
+    opReturnByteStatus.textContent = "0 / 83 bytes";
+  } else if (state.error) {
+    opReturnByteStatus.textContent = `${state.error} (0 / 83 bytes)`;
+  } else if (tooLarge) {
+    opReturnByteStatus.textContent = `${state.bytes} / 83 bytes (exceeds limit)`;
+  } else {
+    opReturnByteStatus.textContent = `${state.bytes} / 83 bytes`;
+  }
+
+  opReturnByteStatus.classList.toggle("error", hasError);
+  opReturnMessageInput.classList.toggle("error", hasError);
+  createPsbtButton.disabled = hasError;
+}
+
+document.getElementById("includeOpReturn").addEventListener("change", updateOpReturnState);
+opReturnMessageInput.addEventListener("input", updateOpReturnState);
+document.getElementById("clearButton").addEventListener("click", () => {
+  setTimeout(updateOpReturnState, 0);
+});
+updateOpReturnState();
 
 document.getElementById("utxoContainer").addEventListener("input", updateFeeCalc);
 document.getElementById("outputContainer").addEventListener("input", updateFeeCalc);
@@ -2007,3 +2094,51 @@ feeCalculatorDialog.addEventListener("close", () => {
 initPageMenu();
 addInput();
 addOutput();
+
+export {
+  NETWORK_CONFIG,
+  getNetworkConfig,
+  validateBitcoinAddress,
+  hexToBytes,
+  isP2wpkhScript,
+  decodeP2wpkhAddressFromScript,
+  formatUint32Hex,
+  parseUint32Hex,
+  isValidUint32Hex,
+  parseTxVersion,
+  isValidTxVersion,
+  parseBtcToSafeSats,
+  parseVout,
+  optionToSighashType,
+  sighashTypeToOption,
+  estimateVirtualSize,
+  createPsbtFromInputs,
+  satoshiToBtcString,
+  inputHashToTxid,
+  bytesToHex,
+  extractOpReturnData,
+  opReturnDataToMessage,
+  deriveGlobalAndPerInputSighash,
+  parseOutputsFromScripts,
+  parsePsbtToFormData,
+  parseRawTransactionToFormData,
+  parsePastedTransactionData,
+  normalizeHexInput,
+  readFixedHex,
+  readVarIntHex,
+  toSafeCount,
+  parseRawTxHexSegments,
+  tryDecodeSighashType,
+  inferInputSighashType,
+  formatSighashLabel,
+  isValidTxid,
+  isValidHexPayload,
+  getMempoolTxApiBase,
+  fetchRawTxHexFromMempool,
+  parseCalculatorBtc,
+  formatCalculatorBtc,
+  parseCalculatorFeeRate,
+  formatCalculatorFeeRate,
+  compactSizeLength,
+  getOpReturnByteState,
+};
