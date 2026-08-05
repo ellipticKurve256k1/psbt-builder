@@ -74,6 +74,27 @@ function isP2wpkhScript(script) {
   return script.length === 22 && script[0] === 0x00 && script[1] === 0x14;
 }
 
+function isP2trScript(script) {
+  return script.length === 34 && script[0] === bitcoin.opcodes.OP_1 && script[1] === 0x20;
+}
+
+function classifySupportedInputScript(script, network) {
+  const type = isP2wpkhScript(script) ? "p2wpkh" : isP2trScript(script) ? "p2tr" : null;
+  if (!type) return null;
+  return {
+    type,
+    address: bitcoin.address.fromOutputScript(script, network),
+  };
+}
+
+function decodeSupportedInputScript(hex, network) {
+  try {
+    return classifySupportedInputScript(hexToBytes(hex), network);
+  } catch {
+    return null;
+  }
+}
+
 function decodeP2wpkhAddressFromScript(hex, network) {
   try {
     const script = hexToBytes(hex);
@@ -82,6 +103,36 @@ function decodeP2wpkhAddressFromScript(hex, network) {
   } catch {}
 
   return null;
+}
+
+function equalBytes(left, right) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function parseBip86InternalKey(rawValue, script, network, fieldName = "Taproot internal key") {
+  const value = String(rawValue ?? "").trim();
+  if (!value) return null;
+  if (!/^[0-9a-fA-F]{64}$/.test(value)) {
+    throw new Error(`${fieldName} must be a 32-byte x-only public key in hex.`);
+  }
+
+  const internalKey = hexToBytes(value);
+  if (!ecc.isXOnlyPoint(internalKey)) {
+    throw new Error(`${fieldName} is not a valid x-only secp256k1 public key.`);
+  }
+  if (script) {
+    if (!isP2trScript(script)) {
+      throw new Error(`${fieldName} can only be used with a P2TR input.`);
+    }
+    const expectedScript = bitcoin.payments.p2tr({
+      internalPubkey: internalKey,
+      network,
+    }).output;
+    if (!expectedScript || !equalBytes(expectedScript, script)) {
+      throw new Error(`${fieldName} does not match the BIP86 scriptPubKey.`);
+    }
+  }
+  return internalKey;
 }
 
 function formatUint32Hex(value) {
@@ -193,6 +244,8 @@ function optionToSighashType(optionValue, allowInherit = false) {
 function sighashTypeToOption(sighashType) {
   if (sighashType === undefined) return "DEFAULT";
   switch (sighashType) {
+    case bitcoin.Transaction.SIGHASH_DEFAULT:
+      return "DEFAULT";
     case bitcoin.Transaction.SIGHASH_ALL:
       return "ALL";
     case bitcoin.Transaction.SIGHASH_NONE:
@@ -221,7 +274,8 @@ function addInput(
   sequenceHex = "fffffffd",
   value = "",
   scriptPubKey = "",
-  inputSighash = "INHERIT"
+  inputSighash = "INHERIT",
+  tapInternalKey = ""
 ) {
   const div = document.createElement("div");
   div.setAttribute("data-utxo", "");
@@ -240,7 +294,11 @@ function addInput(
     </div>
 
     <div class="row" style="margin-top:0.4rem;">
-      <input class="grow script-input" placeholder="scriptPubKey (hex, p2wpkh only)" value="${scriptPubKey}">
+      <input class="grow script-input" placeholder="scriptPubKey (hex, P2WPKH or P2TR)" value="${scriptPubKey}">
+    </div>
+    <div class="tap-internal-key-group" style="display:none;margin-top:0.4rem;">
+      <input class="grow tap-internal-key" placeholder="optional tapInternalKey (32-byte x-only hex)" value="${tapInternalKey}">
+      <div class="hint">Optional BIP86 internal key for external signer compatibility.</div>
     </div>
     <div class="row" style="margin-top:0.4rem;">
       <select class="input-sighash">
@@ -255,7 +313,7 @@ function addInput(
       </select>
     </div>
     <div class="script-label" style="font-size:0.85rem;color:#555;margin-top:0.2rem;">
-      P2WPKH Address: <span>-</span>
+      Input Address: <span>-</span>
     </div>
   `;
 
@@ -268,21 +326,48 @@ function addInput(
   });
 
   const scriptInput = div.querySelector(".script-input");
+  const tapInternalKeyInput = div.querySelector(".tap-internal-key");
+  const tapInternalKeyGroup = div.querySelector(".tap-internal-key-group");
   const sequenceInput = div.querySelector(".sequence-input");
+  const label = div.querySelector(".script-label");
   const labelSpan = div.querySelector(".script-label span");
+  const updateTapInternalKey = () => {
+    const decoded = decodeSupportedInputScript(scriptInput.value.trim(), getSelectedNetwork());
+    const isTaproot = decoded?.type === "p2tr";
+    tapInternalKeyGroup.style.display = isTaproot ? "" : "none";
+    if (!isTaproot) {
+      tapInternalKeyInput.value = "";
+      colourField(tapInternalKeyInput, false);
+      return;
+    }
+    try {
+      parseBip86InternalKey(
+        tapInternalKeyInput.value,
+        hexToBytes(scriptInput.value.trim()),
+        getSelectedNetwork()
+      );
+      colourField(tapInternalKeyInput, true);
+    } catch {
+      colourField(tapInternalKeyInput, false);
+    }
+  };
   const updateLabel = () => {
     const scriptHex = scriptInput.value.trim();
     if (!scriptHex) {
       labelSpan.textContent = "-";
+      label.firstChild.textContent = "Input Address: ";
       colourField(scriptInput, false);
+      updateTapInternalKey();
       updateFeeCalc();
       return;
     }
 
     const network = getSelectedNetwork();
-    const address = decodeP2wpkhAddressFromScript(scriptHex, network);
-    labelSpan.textContent = address || "Invalid scriptPubKey (p2wpkh only)";
-    colourField(scriptInput, !!address);
+    const decoded = decodeSupportedInputScript(scriptHex, network);
+    label.firstChild.textContent = decoded ? `${decoded.type === "p2tr" ? "P2TR" : "P2WPKH"} Address: ` : "Input Address: ";
+    labelSpan.textContent = decoded?.address || "Invalid scriptPubKey (P2WPKH or P2TR only)";
+    colourField(scriptInput, !!decoded);
+    updateTapInternalKey();
     updateFeeCalc();
   };
 
@@ -292,6 +377,10 @@ function addInput(
   };
 
   scriptInput.addEventListener("input", updateLabel);
+  tapInternalKeyInput.addEventListener("input", () => {
+    updateTapInternalKey();
+    updateFeeCalc();
+  });
   sequenceInput.addEventListener("input", updateSequenceLabel);
   div.querySelector(".input-sighash").addEventListener("change", updateFeeCalc);
   updateLabel();
@@ -340,12 +429,35 @@ function refreshAllScriptLabels() {
   validateChangeAddr();
 }
 
+function getInputWitnessSize(script, sighashType) {
+  if (isP2wpkhScript(script)) return 109;
+  if (isP2trScript(script)) {
+    return sighashType === undefined || sighashType === bitcoin.Transaction.SIGHASH_DEFAULT
+      ? 66
+      : 67;
+  }
+  throw new Error("Only P2WPKH and P2TR input scriptPubKeys are supported.");
+}
+
 function estimateVirtualSize(psbt) {
   const inputCount = psbt.data.inputs.length;
-  const outputCount = psbt.data.outputs.length;
-  const baseSize = 10 + inputCount * 41 + outputCount * 34;
-  const witnessSize = inputCount * 107;
-  return Math.ceil((3 * baseSize + witnessSize) / 4);
+  const outputCount = psbt.txOutputs.length;
+  const outputsSize = psbt.txOutputs.reduce(
+    (sum, output) => sum + 8 + compactSizeLength(output.script.length) + output.script.length,
+    0
+  );
+  const strippedSize =
+    4
+    + compactSizeLength(inputCount)
+    + inputCount * 41
+    + compactSizeLength(outputCount)
+    + outputsSize
+    + 4;
+  const witnessSize = 2 + psbt.data.inputs.reduce((sum, input) => {
+    if (!input.witnessUtxo) throw new Error("Input witnessUtxo is required for fee estimation.");
+    return sum + getInputWitnessSize(input.witnessUtxo.script, input.sighashType);
+  }, 0);
+  return Math.ceil((strippedSize * 4 + witnessSize) / 4);
 }
 
 function createPsbtFromInputs(
@@ -366,8 +478,9 @@ function createPsbtFromInputs(
   let totalInput = 0;
   for (const [inputIndex, utxo] of utxos.entries()) {
     const scriptBytes = hexToBytes(utxo.scriptPubKey);
-    if (!isP2wpkhScript(scriptBytes)) {
-      throw new Error("Only P2WPKH input scriptPubKey is supported.");
+    const inputType = classifySupportedInputScript(scriptBytes, network)?.type;
+    if (!inputType) {
+      throw new Error("Only P2WPKH and P2TR input scriptPubKeys are supported.");
     }
     const resolvedSighashType =
       utxo.inputSighashOption === "INHERIT" || utxo.inputSighashOption === undefined
@@ -389,6 +502,15 @@ function createPsbtFromInputs(
     };
     if (resolvedSighashType !== undefined) {
       inputData.sighashType = resolvedSighashType;
+    }
+    const tapInternalKey = parseBip86InternalKey(
+      utxo.tapInternalKey,
+      scriptBytes,
+      network,
+      `Input #${inputIndex + 1} Taproot internal key`
+    );
+    if (tapInternalKey) {
+      inputData.tapInternalKey = tapInternalKey;
     }
     psbt.addInput(inputData);
     totalInput += utxo.value;
@@ -532,6 +654,40 @@ function parseOutputsFromScripts(txOutputs, network, warnings) {
   return { outputs, opReturnMessage };
 }
 
+function parseImportedTaprootMetadata(inputMeta, scriptPubKey, network, inputIndex, warnings) {
+  const script = scriptPubKey ? hexToBytes(scriptPubKey) : new Uint8Array();
+  const hasUnsupportedSpendPath = !!(
+    inputMeta.tapMerkleRoot
+    || inputMeta.tapLeafScript?.length
+    || inputMeta.tapScriptSig?.length
+  );
+  const hasUnsupportedMetadata = !!(
+    hasUnsupportedSpendPath
+    || inputMeta.tapKeySig
+    || inputMeta.tapBip32Derivation?.length
+  );
+  if (hasUnsupportedMetadata) {
+    warnings.push(
+      `Input #${inputIndex} contains unsupported Taproot signing, derivation, or script-tree metadata. Only BIP86 tapInternalKey can be preserved.`
+    );
+  }
+
+  if (!inputMeta.tapInternalKey || hasUnsupportedSpendPath) return "";
+  try {
+    return bytesToHex(parseBip86InternalKey(
+      bytesToHex(inputMeta.tapInternalKey),
+      script,
+      network,
+      `Input #${inputIndex} Taproot internal key`
+    ));
+  } catch {
+    warnings.push(
+      `Input #${inputIndex} tapInternalKey is not compatible with its BIP86 scriptPubKey and was not imported.`
+    );
+    return "";
+  }
+}
+
 function parsePsbtToFormData(psbt) {
   const network = getSelectedNetwork();
   const warnings = [];
@@ -560,6 +716,14 @@ function parsePsbtToFormData(psbt) {
       }
     }
 
+    const tapInternalKey = parseImportedTaprootMetadata(
+      inputMeta,
+      scriptPubKey,
+      network,
+      i,
+      warnings
+    );
+
     let inputSighashOption = "DEFAULT";
     if (inputMeta.sighashType !== undefined) {
       const mapped = sighashTypeToOption(inputMeta.sighashType);
@@ -580,6 +744,7 @@ function parsePsbtToFormData(psbt) {
       value,
       scriptPubKey,
       inputSighashOption,
+      tapInternalKey,
     });
   }
 
@@ -615,6 +780,7 @@ function parseRawTransactionToFormData(tx) {
     value: "",
     scriptPubKey: "",
     inputSighashOption: "INHERIT",
+    tapInternalKey: "",
   }));
 
   const txOutputs = tx.outs.map((out) => ({
@@ -649,7 +815,8 @@ function populateFormWithParsedData(parsed) {
         input.sequenceHex || "fffffffd",
         input.value,
         input.scriptPubKey,
-        input.inputSighashOption || "INHERIT"
+        input.inputSighashOption || "INHERIT",
+        input.tapInternalKey || ""
       );
     });
   }
@@ -1264,10 +1431,10 @@ document.getElementById("createPsbt").onclick = () => {
     const network = getSelectedNetwork();
     refreshAllScriptLabels();
     const hasInvalidInputScript = Array.from(document.querySelectorAll(".script-input")).some(
-      (input) => !decodeP2wpkhAddressFromScript(input.value.trim(), network)
+      (input) => !decodeSupportedInputScript(input.value.trim(), network)
     );
     if (hasInvalidInputScript) {
-      return alert("Only P2WPKH input scriptPubKey is allowed.");
+      return alert("Only P2WPKH and P2TR input scriptPubKeys are allowed.");
     }
 
     const inputRows = Array.from(document.getElementById("utxoContainer").children);
@@ -1279,6 +1446,7 @@ document.getElementById("createPsbt").onclick = () => {
         const sequenceInput = row.querySelector(".sequence-input");
         const valueInput = row.querySelector(".value-input");
         const scriptInput = row.querySelector(".script-input");
+        const tapInternalKeyInput = row.querySelector(".tap-internal-key");
         const inputSighashOption = row.querySelector(".input-sighash").value;
         const maybeInputSighash = optionToSighashType(inputSighashOption, true);
         const txid = txidInput.value.trim();
@@ -1289,6 +1457,7 @@ document.getElementById("createPsbt").onclick = () => {
           sequenceHex: sequenceInput.value.trim(),
           value: parseBtcToSafeSats(valueInput.value, `Input #${index + 1} value`),
           scriptPubKey: scriptInput.value.trim(),
+          tapInternalKey: tapInternalKeyInput.value.trim(),
           inputSighashOption,
           sighashType: maybeInputSighash === null ? undefined : maybeInputSighash,
         };
@@ -1488,6 +1657,7 @@ function updateFeeCalc() {
     const sequenceInput = row.querySelector(".sequence-input");
     const valueInput = row.querySelector(".value-input");
     const scriptInput = row.querySelector(".script-input");
+    const tapInternalKeyInput = row.querySelector(".tap-internal-key");
     const inputSighashOption = row.querySelector(".input-sighash").value;
     const maybeInputSighash = optionToSighashType(inputSighashOption, true);
     return {
@@ -1496,6 +1666,7 @@ function updateFeeCalc() {
       sequenceHex: sequenceInput.value,
       value: Math.round(parseFloat(valueInput.value || 0) * 1e8),
       scriptPubKey: scriptInput.value,
+      tapInternalKey: tapInternalKeyInput.value,
       inputSighashOption,
       sighashType: maybeInputSighash === null ? undefined : maybeInputSighash,
     };
@@ -1732,10 +1903,30 @@ function getCalculatorOpReturnScript() {
 function estimateCalculatorVirtualSize() {
   if (!feeCalculatorState) throw new Error("Fee calculator is not open.");
 
-  const inputCount = document.querySelectorAll("[data-utxo]").length;
+  const inputRows = Array.from(document.querySelectorAll("[data-utxo]"));
+  const inputCount = inputRows.length;
   if (inputCount === 0) throw new Error("Add at least one input before estimating vsize.");
 
   const network = getSelectedNetwork();
+  const globalSighashType = getSelectedSighashType();
+  const inputWitnessSize = inputRows.reduce((sum, row, index) => {
+    const scriptHex = row.querySelector(".script-input")?.value.trim();
+    let script;
+    try {
+      script = hexToBytes(scriptHex);
+    } catch {
+      throw new Error(`Input #${index + 1} has an invalid scriptPubKey.`);
+    }
+    if (!classifySupportedInputScript(script, network)) {
+      throw new Error(`Input #${index + 1} must use a P2WPKH or P2TR scriptPubKey.`);
+    }
+    const inputSighashOption = row.querySelector(".input-sighash")?.value || "INHERIT";
+    const inputSighashType = optionToSighashType(inputSighashOption, true);
+    const resolvedSighashType = inputSighashType === null
+      ? globalSighashType
+      : inputSighashType;
+    return sum + getInputWitnessSize(script, resolvedSighashType);
+  }, 0);
   const outputScripts = feeCalculatorState.outputRows.map((row, index) => {
     const address = row.querySelector(".output-address")?.value.trim();
     if (!address) throw new Error(`Output #${index + 1} address is required for fee-rate mode.`);
@@ -1762,8 +1953,8 @@ function estimateCalculatorVirtualSize() {
     + outputsSize
     + 4;
 
-  // Marker/flag plus a conservative 109-byte signed P2WPKH witness per input.
-  const witnessSize = 2 + inputCount * 109;
+  // Marker/flag plus the serialized witness size for each supported input type.
+  const witnessSize = 2 + inputWitnessSize;
   return Math.ceil((strippedSize * 4 + witnessSize) / 4);
 }
 
@@ -2101,7 +2292,11 @@ export {
   validateBitcoinAddress,
   hexToBytes,
   isP2wpkhScript,
+  isP2trScript,
+  classifySupportedInputScript,
+  decodeSupportedInputScript,
   decodeP2wpkhAddressFromScript,
+  parseBip86InternalKey,
   formatUint32Hex,
   parseUint32Hex,
   isValidUint32Hex,
@@ -2112,6 +2307,7 @@ export {
   optionToSighashType,
   sighashTypeToOption,
   estimateVirtualSize,
+  getInputWitnessSize,
   createPsbtFromInputs,
   satoshiToBtcString,
   inputHashToTxid,

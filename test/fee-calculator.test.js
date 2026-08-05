@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAINNET_PAYMENT,
   change,
+  fillTaprootBuilder,
   fillValidBuilder,
   input,
   loadApp,
@@ -159,6 +160,22 @@ describe("fee-rate calculator", () => {
     expect(document.getElementById("calculatorFee").readOnly).toBe(false);
     expect(document.querySelector(".calculator-output-value").readOnly).toBe(false);
     expect(document.getElementById("calculatorRateField").hidden).toBe(true);
+  });
+
+  it("uses 64-byte DEFAULT and 65-byte explicit Taproot key-path signatures", () => {
+    fillTaprootBuilder();
+    document.getElementById("openFeeCalculator").click();
+    document.getElementById("calculatorRateMode").click();
+    input(document.getElementById("calculatorFeeRate"), "1");
+    const defaultVsize = Number.parseInt(document.getElementById("calculatorVsize").textContent, 10);
+    document.getElementById("cancelFeeCalculator").click();
+
+    change(document.getElementById("sighashType"), "ALL");
+    document.getElementById("openFeeCalculator").click();
+    document.getElementById("calculatorRateMode").click();
+    input(document.getElementById("calculatorFeeRate"), "1");
+    const explicitVsize = Number.parseInt(document.getElementById("calculatorVsize").textContent, 10);
+    expect(explicitVsize).toBe(defaultVsize + 1);
   });
 });
 

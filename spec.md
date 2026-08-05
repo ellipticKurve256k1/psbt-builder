@@ -11,9 +11,9 @@ It is designed for a manual workflow where the user enters UTXOs and outputs, op
 - Runtime: Browser-based single-page app.
 - Data processing: Client-side only.
 - Primary artifact: Unsigned PSBT (`toBase64()` output and binary download).
-- Supported script types for validation:
-  - Standard scriptPubKey decoding to address where possible.
-  - Taproot-like witness script pattern handling for display.
+- Supported input script types:
+  - Native P2WPKH (`OP_0 PUSH20`).
+  - Native P2TR (`OP_1 PUSH32`) using BIP86 key-path spending.
 
 ## 3. Network Selection
 
@@ -45,13 +45,14 @@ When network changes:
   - `vout`
   - `value (BTC)`
   - `scriptPubKey (hex)`
+  - Optional `tapInternalKey` for P2TR inputs
   - Remove (`✕`) button
 
 Removing a row immediately updates fee/balance calculations.
 
 ### 4.2 Input Row Validation and UI Feedback
 
-- `scriptPubKey` is decoded against selected network.
+- `scriptPubKey` is classified as P2WPKH or P2TR and decoded against the selected network.
 - If decoding succeeds:
   - A derived address is shown in the row.
   - Input border is set to green.
@@ -60,7 +61,14 @@ Removing a row immediately updates fee/balance calculations.
   - Input border is set to red.
 - Empty field uses neutral border color.
 
-### 4.3 Input Value Unit
+### 4.3 Taproot Input Metadata
+
+- P2TR inputs use `witnessUtxo` and support BIP86 key-path spending only.
+- An optional 32-byte x-only `tapInternalKey` can be supplied for external signer compatibility.
+- When supplied, the internal key must be a valid secp256k1 x-only point and its BIP86 tweak must match the input scriptPubKey.
+- Taproot script paths, Merkle roots, control blocks, and Taproot BIP32 derivations are not supported.
+
+### 4.4 Input Value Unit
 
 - User enters input amount in **BTC**.
 - Internal conversion: `Math.round(parseFloat(valueBTC) * 1e8)` to satoshis.
@@ -144,6 +152,7 @@ Each input is added with:
 - `sequence`: `4294967293` (`0xfffffffd`)
 - `witnessUtxo.script`: parsed scriptPubKey bytes
 - `witnessUtxo.value`: satoshis as `BigInt`
+- `tapInternalKey`: optional 32-byte x-only key for compatible P2TR inputs
 
 ### 7.1.2 Output Mapping to PSBT
 
@@ -207,8 +216,9 @@ Realtime updates run on input/output edits.
   satoshi.
 - Fee-rate mode makes the absolute fee and last output read-only. Editing the
   rate or another output automatically recalculates both values.
-- Vsize is estimated locally from P2WPKH input witness sizing and the actual
-  serialized output script lengths, including an enabled OP_RETURN output.
+- Vsize is estimated locally from each input's P2WPKH or P2TR key-path witness
+  sizing and the actual serialized output script lengths, including an enabled
+  OP_RETURN output.
 - Output addresses must be valid for the selected network before fee-rate mode
   can estimate transaction size.
 - Calculations use integer satoshis and accept at most 8 BTC decimal places.
@@ -270,6 +280,7 @@ On first load:
 
 - No signing capability.
 - No private key handling.
+- No Taproot script-path spending or script-tree metadata editing.
 - No automatic UTXO discovery or wallet integration.
 - No persistence across page reloads.
 - No server-side validation.

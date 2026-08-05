@@ -1,9 +1,14 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { Buffer } from "buffer";
 import * as bitcoin from "bitcoinjs-lib";
+import * as ecc from "@bitcoin-js/tiny-secp256k1-asmjs";
 import {
   MAINNET_PAYMENT,
+  MAINNET_TAPROOT_PAYMENT,
   P2WPKH_HASH,
+  TAPROOT_INTERNAL_KEY,
+  TAPROOT_OTHER_INTERNAL_KEY,
+  TAPROOT_PRIVATE_KEY,
   TESTNET_PAYMENT,
   TXID,
   loadApp,
@@ -40,6 +45,30 @@ describe("core validation and formatting", () => {
     expect(app.validateBitcoinAddress(p2pkh.address, bitcoin.networks.testnet)).toBe(false);
     expect(app.hexToBytes(null)).toHaveLength(0);
     expect(app.decodeP2wpkhAddressFromScript("zz", bitcoin.networks.bitcoin)).toBeNull();
+  });
+
+  it("classifies P2TR scripts and validates BIP86 internal keys", () => {
+    const script = Buffer.from(MAINNET_TAPROOT_PAYMENT.output);
+    expect(app.isP2trScript(script)).toBe(true);
+    expect(app.isP2wpkhScript(script)).toBe(false);
+    expect(app.classifySupportedInputScript(script, bitcoin.networks.bitcoin)).toEqual({
+      type: "p2tr",
+      address: MAINNET_TAPROOT_PAYMENT.address,
+    });
+    expect(app.decodeSupportedInputScript(script.toString("hex"), bitcoin.networks.bitcoin)?.type)
+      .toBe("p2tr");
+    expect(app.decodeSupportedInputScript("6a", bitcoin.networks.bitcoin)).toBeNull();
+    expect(Buffer.from(app.parseBip86InternalKey(
+      TAPROOT_INTERNAL_KEY.toString("hex"), script, bitcoin.networks.bitcoin
+    ))).toEqual(TAPROOT_INTERNAL_KEY);
+    expect(app.parseBip86InternalKey("", script, bitcoin.networks.bitcoin)).toBeNull();
+    expect(() => app.parseBip86InternalKey("aa", script, bitcoin.networks.bitcoin)).toThrow("32-byte");
+    expect(() => app.parseBip86InternalKey(
+      TAPROOT_OTHER_INTERNAL_KEY.toString("hex"), script, bitcoin.networks.bitcoin
+    )).toThrow("does not match");
+    expect(() => app.parseBip86InternalKey(
+      TAPROOT_INTERNAL_KEY.toString("hex"), MAINNET_PAYMENT.output, bitcoin.networks.bitcoin
+    )).toThrow("only be used with a P2TR");
   });
 
   it("parses strict hexadecimal and uint32 fields", () => {
@@ -142,6 +171,44 @@ describe("core validation and formatting", () => {
       expect.stringContaining("Multiple OP_RETURN"),
       expect.stringContaining("could not be converted"),
     ]));
+  });
+
+  it("builds, signs, and finalizes a BIP86 key-path PSBT", () => {
+    const psbt = app.createPsbtFromInputs([{
+      txid: TXID,
+      vout: 0,
+      value: 100000,
+      scriptPubKey: Buffer.from(MAINNET_TAPROOT_PAYMENT.output).toString("hex"),
+      tapInternalKey: TAPROOT_INTERNAL_KEY.toString("hex"),
+    }], [{ address: MAINNET_PAYMENT.address, value: 90000 }], 0, "", null);
+
+    let normalizedPrivateKey = Buffer.from(TAPROOT_PRIVATE_KEY);
+    const untweakedPublicKey = ecc.pointFromScalar(normalizedPrivateKey, true);
+    if (untweakedPublicKey[0] === 0x03) {
+      normalizedPrivateKey = Buffer.from(ecc.privateNegate(normalizedPrivateKey));
+    }
+    const tweak = bitcoin.crypto.taggedHash("TapTweak", TAPROOT_INTERNAL_KEY);
+    const tweakedPrivateKey = ecc.privateAdd(normalizedPrivateKey, tweak);
+    const signer = {
+      publicKey: ecc.pointFromScalar(tweakedPrivateKey, true),
+      signSchnorr: (hash) => ecc.signSchnorr(hash, tweakedPrivateKey),
+    };
+
+    psbt.signInput(0, signer);
+    psbt.finalizeAllInputs();
+    const transaction = psbt.extractTransaction();
+    expect(transaction.ins[0].witness).toHaveLength(1);
+    expect(transaction.ins[0].witness[0]).toHaveLength(64);
+  });
+
+  it("sizes P2WPKH and Taproot key-path witnesses", () => {
+    expect(app.getInputWitnessSize(MAINNET_PAYMENT.output, undefined)).toBe(109);
+    expect(app.getInputWitnessSize(MAINNET_TAPROOT_PAYMENT.output, undefined)).toBe(66);
+    expect(app.getInputWitnessSize(
+      MAINNET_TAPROOT_PAYMENT.output,
+      bitcoin.Transaction.SIGHASH_ALL
+    )).toBe(67);
+    expect(() => app.getInputWitnessSize(Uint8Array.from([0x6a]), undefined)).toThrow("P2WPKH and P2TR");
   });
 
   it("formats amounts and derives global/per-input sighash choices", () => {

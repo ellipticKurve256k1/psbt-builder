@@ -3,10 +3,15 @@ import { Buffer } from "buffer";
 import * as bitcoin from "bitcoinjs-lib";
 import {
   MAINNET_PAYMENT,
+  MAINNET_TAPROOT_PAYMENT,
+  TAPROOT_INTERNAL_KEY,
+  TAPROOT_OTHER_INTERNAL_KEY,
   TESTNET_PAYMENT,
+  TESTNET_TAPROOT_PAYMENT,
   TXID,
   change,
   fillValidBuilder,
+  fillTaprootBuilder,
   input,
   loadApp,
   makeRawTransaction,
@@ -168,7 +173,7 @@ describe("PSBT creation", () => {
     let rows = fillValidBuilder();
     input(rows.inputRow.querySelector(".script-input"), "6a");
     document.getElementById("createPsbt").click();
-    expect(window.alert).toHaveBeenLastCalledWith("Only P2WPKH input scriptPubKey is allowed.");
+    expect(window.alert).toHaveBeenLastCalledWith("Only P2WPKH and P2TR input scriptPubKeys are allowed.");
 
     document.getElementById("clearButton").click();
     rows = fillValidBuilder();
@@ -180,6 +185,104 @@ describe("PSBT creation", () => {
     fillValidBuilder({ inputBtc: "1", outputBtc: "1.1" });
     document.getElementById("createPsbt").click();
     expect(window.alert).toHaveBeenLastCalledWith("Outputs exceed inputs!");
+  });
+});
+
+describe("Taproot key-path inputs", () => {
+  it("detects P2TR scripts, derives network addresses, and reveals the internal-key field", () => {
+    const { inputRow } = fillTaprootBuilder();
+    expect(inputRow.querySelector(".script-label").textContent).toContain("P2TR Address");
+    expect(inputRow.querySelector(".script-label span").textContent).toBe(MAINNET_TAPROOT_PAYMENT.address);
+    expect(inputRow.querySelector(".tap-internal-key-group").style.display).toBe("");
+
+    change(document.getElementById("network"), "testnet");
+    expect(inputRow.querySelector(".script-label span").textContent).toBe(TESTNET_TAPROOT_PAYMENT.address);
+
+    input(inputRow.querySelector(".script-input"), Buffer.from(MAINNET_PAYMENT.output).toString("hex"));
+    expect(inputRow.querySelector(".tap-internal-key-group").style.display).toBe("none");
+    expect(inputRow.querySelector(".tap-internal-key").value).toBe("");
+  });
+
+  it("creates P2TR inputs with an optional BIP371 tapInternalKey", () => {
+    let { inputRow } = fillTaprootBuilder();
+    document.getElementById("createPsbt").click();
+    expect(window.alert).not.toHaveBeenCalled();
+    expect(Buffer.from(window.currentPsbt.data.inputs[0].tapInternalKey).toString("hex"))
+      .toBe(TAPROOT_INTERNAL_KEY.toString("hex"));
+    expect(Buffer.from(window.currentPsbt.data.inputs[0].witnessUtxo.script).toString("hex"))
+      .toBe(Buffer.from(MAINNET_TAPROOT_PAYMENT.output).toString("hex"));
+
+    document.getElementById("clearButton").click();
+    inputRow = fillTaprootBuilder({ includeInternalKey: false }).inputRow;
+    expect(inputRow.querySelector(".tap-internal-key").value).toBe("");
+    document.getElementById("createPsbt").click();
+    expect(window.currentPsbt.data.inputs[0].tapInternalKey).toBeUndefined();
+  });
+
+  it("rejects malformed, invalid-curve, and mismatched internal keys", () => {
+    const { inputRow } = fillTaprootBuilder({ includeInternalKey: false });
+    const keyField = inputRow.querySelector(".tap-internal-key");
+    input(keyField, "aa");
+    expect(keyField.style.borderColor).toBe("rgb(200, 72, 56)");
+    document.getElementById("createPsbt").click();
+    expect(window.alert).toHaveBeenLastCalledWith(expect.stringContaining("32-byte x-only"));
+
+    input(keyField, "ff".repeat(32));
+    document.getElementById("createPsbt").click();
+    expect(window.alert).toHaveBeenLastCalledWith(expect.stringContaining("valid x-only"));
+
+    input(keyField, TAPROOT_OTHER_INTERNAL_KEY.toString("hex"));
+    document.getElementById("createPsbt").click();
+    expect(window.alert).toHaveBeenLastCalledWith(expect.stringContaining("does not match"));
+  });
+
+  it("supports mixed P2TR and P2WPKH inputs", () => {
+    fillTaprootBuilder();
+    document.getElementById("addInputButton").click();
+    const second = document.querySelectorAll("[data-utxo]")[1];
+    input(second.querySelector(".txid-input"), "22".repeat(32));
+    input(second.querySelector(".vout-input"), "2");
+    input(second.querySelector(".value-input"), "0.5");
+    input(second.querySelector(".script-input"), Buffer.from(MAINNET_PAYMENT.output).toString("hex"));
+    document.getElementById("createPsbt").click();
+
+    expect(window.currentPsbt.data.inputs).toHaveLength(2);
+    expect(window.currentPsbt.data.inputs[0].tapInternalKey).toBeDefined();
+    expect(window.currentPsbt.data.inputs[1].tapInternalKey).toBeUndefined();
+    expect(window.currentPsbt.data.inputs[1].witnessUtxo.value).toBe(50000000n);
+  });
+
+  it("preserves compatible tapInternalKey metadata through import", () => {
+    fillTaprootBuilder();
+    document.getElementById("createPsbt").click();
+    const encoded = window.currentPsbt.toBase64();
+    document.getElementById("clearButton").click();
+    input(document.getElementById("importData"), encoded);
+    document.getElementById("importDataButton").click();
+
+    const inputRow = document.querySelector("[data-utxo]");
+    expect(inputRow.querySelector(".tap-internal-key").value).toBe(TAPROOT_INTERNAL_KEY.toString("hex"));
+    expect(inputRow.querySelector(".tap-internal-key-group").style.display).toBe("");
+  });
+
+  it("warns and omits unsupported Taproot script-tree metadata on import", () => {
+    const psbt = new bitcoin.Psbt({ network: bitcoin.networks.bitcoin });
+    psbt.addInput({
+      hash: TXID,
+      index: 0,
+      witnessUtxo: {
+        script: MAINNET_TAPROOT_PAYMENT.output,
+        value: 100000n,
+      },
+      tapInternalKey: TAPROOT_INTERNAL_KEY,
+      tapMerkleRoot: Buffer.alloc(32, 0x44),
+    });
+    psbt.addOutput({ address: MAINNET_PAYMENT.address, value: 90000n });
+    input(document.getElementById("importData"), psbt.toBase64());
+    document.getElementById("importDataButton").click();
+
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("unsupported Taproot"));
+    expect(document.querySelector(".tap-internal-key").value).toBe("");
   });
 });
 

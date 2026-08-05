@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { Buffer } from "buffer";
 import * as bitcoin from "bitcoinjs-lib";
+import * as ecc from "@bitcoin-js/tiny-secp256k1-asmjs";
+
+bitcoin.initEccLib(ecc);
 
 const html = readFileSync(`${process.cwd()}/index.html`, "utf8");
 const bodyMarkup = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] || "";
@@ -13,6 +16,17 @@ export const MAINNET_PAYMENT = bitcoin.payments.p2wpkh({
 });
 export const TESTNET_PAYMENT = bitcoin.payments.p2wpkh({
   hash: P2WPKH_HASH,
+  network: bitcoin.networks.testnet,
+});
+export const TAPROOT_PRIVATE_KEY = Buffer.alloc(32, 0x01);
+export const TAPROOT_INTERNAL_KEY = Buffer.from(ecc.xOnlyPointFromScalar(TAPROOT_PRIVATE_KEY));
+export const TAPROOT_OTHER_INTERNAL_KEY = Buffer.from(ecc.xOnlyPointFromScalar(Buffer.alloc(32, 0x02)));
+export const MAINNET_TAPROOT_PAYMENT = bitcoin.payments.p2tr({
+  internalPubkey: TAPROOT_INTERNAL_KEY,
+  network: bitcoin.networks.bitcoin,
+});
+export const TESTNET_TAPROOT_PAYMENT = bitcoin.payments.p2tr({
+  internalPubkey: TAPROOT_INTERNAL_KEY,
   network: bitcoin.networks.testnet,
 });
 
@@ -47,6 +61,22 @@ export function fillValidBuilder({ inputBtc = "1", outputBtc = "0.9" } = {}) {
   input(outputRow.querySelector(".output-address"), MAINNET_PAYMENT.address);
   input(outputRow.querySelectorAll("input")[1], outputBtc);
   return { inputRow, outputRow };
+}
+
+export function fillTaprootBuilder({
+  inputBtc = "1",
+  outputBtc = "0.9",
+  includeInternalKey = true,
+} = {}) {
+  const result = fillValidBuilder({ inputBtc, outputBtc });
+  input(
+    result.inputRow.querySelector(".script-input"),
+    Buffer.from(MAINNET_TAPROOT_PAYMENT.output).toString("hex")
+  );
+  if (includeInternalKey) {
+    input(result.inputRow.querySelector(".tap-internal-key"), TAPROOT_INTERNAL_KEY.toString("hex"));
+  }
+  return result;
 }
 
 export function makeRawTransaction({ segwit = false, network = bitcoin.networks.bitcoin } = {}) {
