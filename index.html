@@ -453,6 +453,34 @@
       color: #f08b7f;
     }
 
+    .descriptor-loading {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      min-height: 1.35rem;
+      margin-top: 0.65rem;
+      color: #f4b35f;
+      font-size: 0.88rem;
+    }
+
+    .descriptor-loading[hidden] {
+      display: none;
+    }
+
+    .descriptor-loading-spinner {
+      width: 1rem;
+      height: 1rem;
+      flex: 0 0 auto;
+      border: 2px solid rgba(247, 147, 26, 0.28);
+      border-top-color: #f7931a;
+      border-radius: 50%;
+      animation: descriptor-spin 700ms linear infinite;
+    }
+
+    @keyframes descriptor-spin {
+      to { transform: rotate(360deg); }
+    }
+
     .descriptor-results-toggle {
       width: 100%;
       display: flex;
@@ -1585,7 +1613,7 @@
     </section>
 
     <section id="descriptorPage" class="app-page hidden">
-      <section class="card descriptor-layout">
+      <section id="descriptorDerivationPanel" class="card descriptor-layout" aria-busy="false">
         <div class="card-head">
           <h2>Descriptor Address Derivation</h2>
         </div>
@@ -1617,6 +1645,10 @@
           <div class="action-row">
             <button id="deriveDescriptorButton" type="button">Derive Addresses</button>
             <button id="clearDescriptorButton" type="button">Clear</button>
+          </div>
+          <div id="descriptorLoading" class="descriptor-loading" role="status" aria-live="polite" hidden>
+            <span class="descriptor-loading-spinner" aria-hidden="true"></span>
+            <span>Deriving addresses locally in your browser…</span>
           </div>
           <div id="descriptorStatus" aria-live="polite"></div>
         </div>

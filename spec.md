@@ -68,6 +68,8 @@ the PSBT Builder form.
 - Start index defaults to `0` and must be within `0..2147483647`.
 - Count defaults to `20` and must be within `1..100`.
 - The complete requested range must remain within the unhardened BIP32 limit.
+- While deriving, the page shows a local-loading spinner, marks the panel busy,
+  and disables the derive button until the result or validation error is ready.
 - Results open in an expandable/collapsible panel. Receiving addresses appear in
   the upper component and change addresses in the lower component.
 - Each address component has its own bounded vertical scroll area, so long ranges

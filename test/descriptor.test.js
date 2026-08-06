@@ -198,6 +198,14 @@ describe("descriptor address page", () => {
     input(document.getElementById("descriptorCount"), "2");
     document.getElementById("deriveDescriptorButton").click();
 
+    expect(document.getElementById("descriptorLoading").hidden).toBe(false);
+    expect(document.getElementById("deriveDescriptorButton").disabled).toBe(true);
+    expect(document.getElementById("deriveDescriptorButton").textContent).toBe("Deriving…");
+    expect(document.getElementById("descriptorDerivationPanel").getAttribute("aria-busy")).toBe(
+      "true"
+    );
+    await vi.waitFor(() => expect(document.getElementById("descriptorLoading").hidden).toBe(true));
+
     const receivingRows = document.querySelectorAll("#receivingAddressList .descriptor-address-row");
     const changeRows = document.querySelectorAll("#changeAddressList .descriptor-address-row");
     expect(receivingRows).toHaveLength(2);
@@ -205,6 +213,10 @@ describe("descriptor address page", () => {
     expect(receivingRows[0].textContent).toContain(expectedWpkh(rootA, 0, 2));
     expect(changeRows[0].textContent).toContain(expectedWpkh(rootA, 1, 2));
     expect(document.getElementById("descriptorStatus").textContent).toContain("locally in your browser");
+    expect(document.getElementById("deriveDescriptorButton").disabled).toBe(false);
+    expect(document.getElementById("descriptorDerivationPanel").getAttribute("aria-busy")).toBe(
+      "false"
+    );
 
     receivingRows[0].querySelector(".descriptor-copy-button").click();
     await vi.waitFor(() =>
@@ -218,10 +230,13 @@ describe("descriptor address page", () => {
     expect(document.getElementById("descriptorResults").hidden).toBe(true);
   });
 
-  it("stacks receiving above change in independently scrollable components and collapses results", () => {
+  it("stacks receiving above change in independently scrollable components and collapses results", async () => {
     input(document.getElementById("descriptorInput"), wpkhDescriptor);
     input(document.getElementById("descriptorCount"), "2");
     document.getElementById("deriveDescriptorButton").click();
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(2)
+    );
 
     const receivingList = document.getElementById("receivingAddressList");
     const changeList = document.getElementById("changeAddressList");
@@ -245,11 +260,14 @@ describe("descriptor address page", () => {
 
   it("shows inline errors and handles clipboard failure", async () => {
     document.getElementById("deriveDescriptorButton").click();
-    expect(document.getElementById("descriptorStatus").classList.contains("error")).toBe(true);
+    await vi.waitFor(() =>
+      expect(document.getElementById("descriptorStatus").classList.contains("error")).toBe(true)
+    );
 
     input(document.getElementById("descriptorInput"), wpkhDescriptor);
     input(document.getElementById("descriptorCount"), "1");
     document.getElementById("deriveDescriptorButton").click();
+    await vi.waitFor(() => expect(document.querySelector(".descriptor-copy-button")).not.toBeNull());
     navigator.clipboard.writeText.mockRejectedValueOnce(new Error("denied"));
     document.querySelector(".descriptor-copy-button").click();
     await vi.waitFor(() =>
@@ -257,7 +275,7 @@ describe("descriptor address page", () => {
     );
   });
 
-  it("re-derives on network changes and makes no external or persistent writes", () => {
+  it("re-derives on network changes and makes no external or persistent writes", async () => {
     const fetchSpy = vi.fn();
     globalThis.fetch = fetchSpy;
     const xhrSpy = vi.spyOn(XMLHttpRequest.prototype, "open");
@@ -271,13 +289,19 @@ describe("descriptor address page", () => {
     input(document.getElementById("descriptorInput"), wpkhDescriptor);
     input(document.getElementById("descriptorCount"), "1");
     document.getElementById("deriveDescriptorButton").click();
-    expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1);
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1)
+    );
 
     change(document.getElementById("network"), "testnet");
-    expect(document.getElementById("descriptorStatus").textContent).toContain("selected network");
+    await vi.waitFor(() =>
+      expect(document.getElementById("descriptorStatus").textContent).toContain("selected network")
+    );
     expect(document.getElementById("descriptorResults").hidden).toBe(true);
     change(document.getElementById("network"), "mainnet");
-    expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1);
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1)
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(xhrSpy).not.toHaveBeenCalled();
     expect(beaconSpy).not.toHaveBeenCalled();

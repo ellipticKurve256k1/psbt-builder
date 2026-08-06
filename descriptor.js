@@ -117,6 +117,8 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
   const countInput = document.getElementById("descriptorCount");
   const deriveButton = document.getElementById("deriveDescriptorButton");
   const clearButton = document.getElementById("clearDescriptorButton");
+  const derivationPanel = document.getElementById("descriptorDerivationPanel");
+  const loading = document.getElementById("descriptorLoading");
   const status = document.getElementById("descriptorStatus");
   const results = document.getElementById("descriptorResults");
   const resultsToggle = document.getElementById("descriptorResultsToggle");
@@ -130,6 +132,8 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     !countInput ||
     !deriveButton ||
     !clearButton ||
+    !derivationPanel ||
+    !loading ||
     !status ||
     !results ||
     !resultsToggle ||
@@ -142,11 +146,28 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
   }
 
   let hasDerivationRequest = false;
+  let derivationRequestId = 0;
 
   const setStatus = (message = "", isError = false) => {
     status.textContent = message;
     status.classList.toggle("error", isError);
   };
+
+  const setLoading = (isLoading) => {
+    loading.hidden = !isLoading;
+    deriveButton.disabled = isLoading;
+    deriveButton.textContent = isLoading ? "Deriving…" : "Derive Addresses";
+    derivationPanel.setAttribute("aria-busy", String(isLoading));
+  };
+
+  const waitForBrowserPaint = () =>
+    new Promise((resolve) => {
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => window.setTimeout(resolve, 0));
+      } else {
+        window.setTimeout(resolve, 0);
+      }
+    });
 
   const setResultsExpanded = (expanded) => {
     resultsToggle.setAttribute("aria-expanded", String(expanded));
@@ -190,8 +211,15 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     setResultsExpanded(true);
   };
 
-  const derive = () => {
+  const derive = async () => {
     hasDerivationRequest = true;
+    derivationRequestId += 1;
+    const currentRequestId = derivationRequestId;
+    setStatus();
+    setLoading(true);
+    await waitForBrowserPaint();
+    if (currentRequestId !== derivationRequestId) return;
+
     try {
       const rows = deriveDescriptorAddressPairs({
         descriptor: descriptorInput.value,
@@ -207,11 +235,16 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
       clearResults();
       results.hidden = true;
       setStatus(error.message, true);
+    } finally {
+      if (currentRequestId === derivationRequestId) setLoading(false);
     }
   };
 
-  deriveButton.addEventListener("click", derive);
+  deriveButton.addEventListener("click", () => {
+    void derive();
+  });
   clearButton.addEventListener("click", () => {
+    derivationRequestId += 1;
     descriptorInput.value = "";
     startInput.value = "0";
     countInput.value = "20";
@@ -219,13 +252,14 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     results.hidden = true;
     setResultsExpanded(true);
     hasDerivationRequest = false;
+    setLoading(false);
     setStatus();
   });
   resultsToggle.addEventListener("click", () => {
     setResultsExpanded(resultsToggle.getAttribute("aria-expanded") !== "true");
   });
   networkSelect.addEventListener("change", () => {
-    if (hasDerivationRequest) derive();
+    if (hasDerivationRequest) void derive();
   });
   resultsContent.addEventListener("click", async (event) => {
     const button = event.target.closest?.(".descriptor-copy-button");
