@@ -198,13 +198,15 @@ describe("descriptor address page", () => {
     input(document.getElementById("descriptorCount"), "2");
     document.getElementById("deriveDescriptorButton").click();
 
-    const rows = document.querySelectorAll("#descriptorResultBody tr");
-    expect(rows).toHaveLength(2);
-    expect(rows[0].textContent).toContain(expectedWpkh(rootA, 0, 2));
-    expect(rows[0].textContent).toContain(expectedWpkh(rootA, 1, 2));
+    const receivingRows = document.querySelectorAll("#receivingAddressList .descriptor-address-row");
+    const changeRows = document.querySelectorAll("#changeAddressList .descriptor-address-row");
+    expect(receivingRows).toHaveLength(2);
+    expect(changeRows).toHaveLength(2);
+    expect(receivingRows[0].textContent).toContain(expectedWpkh(rootA, 0, 2));
+    expect(changeRows[0].textContent).toContain(expectedWpkh(rootA, 1, 2));
     expect(document.getElementById("descriptorStatus").textContent).toContain("locally in your browser");
 
-    rows[0].querySelector(".descriptor-copy-button").click();
+    receivingRows[0].querySelector(".descriptor-copy-button").click();
     await vi.waitFor(() =>
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedWpkh(rootA, 0, 2))
     );
@@ -214,6 +216,31 @@ describe("descriptor address page", () => {
     expect(document.getElementById("descriptorStartIndex").value).toBe("0");
     expect(document.getElementById("descriptorCount").value).toBe("20");
     expect(document.getElementById("descriptorResults").hidden).toBe(true);
+  });
+
+  it("stacks receiving above change in independently scrollable components and collapses results", () => {
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "2");
+    document.getElementById("deriveDescriptorButton").click();
+
+    const receivingList = document.getElementById("receivingAddressList");
+    const changeList = document.getElementById("changeAddressList");
+    const content = document.getElementById("descriptorResultsContent");
+    const toggle = document.getElementById("descriptorResultsToggle");
+    expect(receivingList.classList.contains("descriptor-address-scroll")).toBe(true);
+    expect(changeList.classList.contains("descriptor-address-scroll")).toBe(true);
+    expect(
+      receivingList.compareDocumentPosition(changeList) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(content.hidden).toBe(false);
+
+    toggle.click();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(content.hidden).toBe(true);
+    toggle.click();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(content.hidden).toBe(false);
   });
 
   it("shows inline errors and handles clipboard failure", async () => {
@@ -244,13 +271,13 @@ describe("descriptor address page", () => {
     input(document.getElementById("descriptorInput"), wpkhDescriptor);
     input(document.getElementById("descriptorCount"), "1");
     document.getElementById("deriveDescriptorButton").click();
-    expect(document.querySelectorAll("#descriptorResultBody tr")).toHaveLength(1);
+    expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1);
 
     change(document.getElementById("network"), "testnet");
     expect(document.getElementById("descriptorStatus").textContent).toContain("selected network");
     expect(document.getElementById("descriptorResults").hidden).toBe(true);
     change(document.getElementById("network"), "mainnet");
-    expect(document.querySelectorAll("#descriptorResultBody tr")).toHaveLength(1);
+    expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(xhrSpy).not.toHaveBeenCalled();
     expect(beaconSpy).not.toHaveBeenCalled();

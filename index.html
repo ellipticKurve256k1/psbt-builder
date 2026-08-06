@@ -453,37 +453,114 @@
       color: #f08b7f;
     }
 
-    .descriptor-table-wrap {
-      overflow-x: auto;
-    }
-
-    .descriptor-table {
+    .descriptor-results-toggle {
       width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-
-    .descriptor-table th,
-    .descriptor-table td {
-      padding: 0.7rem;
-      border-bottom: 1px solid #2f3f50;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
       text-align: left;
-      vertical-align: middle;
     }
 
-    .descriptor-table th:first-child,
-    .descriptor-table td:first-child {
-      width: 74px;
+    .descriptor-results-toggle:hover,
+    .descriptor-results-toggle:focus-visible {
+      background: transparent;
+      box-shadow: none;
+      transform: none;
     }
 
-    .descriptor-table td code {
-      display: block;
+    .descriptor-results-toggle h2 {
+      margin: 0;
+    }
+
+    .descriptor-collapse-arrow {
+      display: inline-grid;
+      width: 2rem;
+      height: 2rem;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid #3d5064;
+      border-radius: 50%;
+      color: #f7931a;
+      font-size: 1.15rem;
+      transition: transform 160ms ease;
+    }
+
+    .descriptor-results-toggle[aria-expanded="false"] .descriptor-collapse-arrow {
+      transform: rotate(-90deg);
+    }
+
+    .descriptor-results-content {
+      display: grid;
+      gap: 0.9rem;
+      margin-top: 0.85rem;
+    }
+
+    .descriptor-address-component {
+      overflow: hidden;
+      border: 1px solid #2f3f50;
+      border-radius: 12px;
+      background: #111923;
+    }
+
+    .descriptor-address-component-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.7rem;
+      padding: 0.7rem 0.8rem;
+      border-bottom: 1px solid #2f3f50;
+      background: #17222e;
+    }
+
+    .descriptor-address-component-head h3 {
+      margin: 0;
+      color: #dceaf6;
+      font-size: 0.95rem;
+    }
+
+    .descriptor-address-component-head span {
+      color: #8da9c2;
+      font-size: 0.78rem;
+    }
+
+    .descriptor-address-scroll {
+      max-height: 260px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+    }
+
+    .descriptor-address-row {
+      display: grid;
+      grid-template-columns: 58px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.68rem 0.8rem;
+      border-bottom: 1px solid #263544;
+    }
+
+    .descriptor-address-row:last-child {
+      border-bottom: 0;
+    }
+
+    .descriptor-address-index {
+      color: #8da9c2;
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .descriptor-address-row code {
       overflow-wrap: anywhere;
       color: #d7e6f4;
     }
 
     .descriptor-copy-button {
-      margin-top: 0.45rem;
       padding: 0.35rem 0.65rem;
       font-size: 0.78rem;
     }
@@ -1310,6 +1387,18 @@
         padding-right: 15px;
         padding-left: 15px;
       }
+
+      .descriptor-range-row {
+        grid-template-columns: 1fr;
+      }
+
+      .descriptor-address-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      .descriptor-address-index {
+        grid-column: 1 / -1;
+      }
     }
   </style>
   <script type="module" src="/main.js"></script>
@@ -1534,20 +1623,31 @@
       </section>
 
       <section id="descriptorResults" class="card" hidden>
-        <div class="card-head">
+        <button
+          id="descriptorResultsToggle"
+          class="descriptor-results-toggle"
+          type="button"
+          aria-expanded="true"
+          aria-controls="descriptorResultsContent"
+        >
           <h2>Derived Addresses</h2>
-        </div>
-        <div class="descriptor-table-wrap">
-          <table class="descriptor-table">
-            <thead>
-              <tr>
-                <th scope="col">Index</th>
-                <th scope="col">Receiving (branch 0)</th>
-                <th scope="col">Change (branch 1)</th>
-              </tr>
-            </thead>
-            <tbody id="descriptorResultBody"></tbody>
-          </table>
+          <span class="descriptor-collapse-arrow" aria-hidden="true">▾</span>
+        </button>
+        <div id="descriptorResultsContent" class="descriptor-results-content">
+          <section class="descriptor-address-component" aria-labelledby="receivingAddressesTitle">
+            <div class="descriptor-address-component-head">
+              <h3 id="receivingAddressesTitle">Receiving Addresses</h3>
+              <span>Branch 0</span>
+            </div>
+            <div id="receivingAddressList" class="descriptor-address-scroll"></div>
+          </section>
+          <section class="descriptor-address-component" aria-labelledby="changeAddressesTitle">
+            <div class="descriptor-address-component-head">
+              <h3 id="changeAddressesTitle">Change Addresses</h3>
+              <span>Branch 1</span>
+            </div>
+            <div id="changeAddressList" class="descriptor-address-scroll"></div>
+          </section>
         </div>
       </section>
     </section>

@@ -68,8 +68,11 @@ the PSBT Builder form.
 - Start index defaults to `0` and must be within `0..2147483647`.
 - Count defaults to `20` and must be within `1..100`.
 - The complete requested range must remain within the unhardened BIP32 limit.
-- Results show the child index, receiving address, change address, and individual
-  copy buttons.
+- Results open in an expandable/collapsible panel. Receiving addresses appear in
+  the upper component and change addresses in the lower component.
+- Each address component has its own bounded vertical scroll area, so long ranges
+  do not make the surrounding page scroll with the list.
+- Every row shows its child index, address, and an individual copy button.
 - `Clear` removes the descriptor and results and restores the default range.
 
 ## 5. Inputs (UTXOs) Section

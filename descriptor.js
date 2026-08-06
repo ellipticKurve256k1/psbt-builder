@@ -119,7 +119,10 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
   const clearButton = document.getElementById("clearDescriptorButton");
   const status = document.getElementById("descriptorStatus");
   const results = document.getElementById("descriptorResults");
-  const resultBody = document.getElementById("descriptorResultBody");
+  const resultsToggle = document.getElementById("descriptorResultsToggle");
+  const resultsContent = document.getElementById("descriptorResultsContent");
+  const receivingList = document.getElementById("receivingAddressList");
+  const changeList = document.getElementById("changeAddressList");
 
   if (
     !descriptorInput ||
@@ -129,7 +132,10 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     !clearButton ||
     !status ||
     !results ||
-    !resultBody ||
+    !resultsToggle ||
+    !resultsContent ||
+    !receivingList ||
+    !changeList ||
     !networkSelect
   ) {
     return;
@@ -142,35 +148,46 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     status.classList.toggle("error", isError);
   };
 
+  const setResultsExpanded = (expanded) => {
+    resultsToggle.setAttribute("aria-expanded", String(expanded));
+    resultsContent.hidden = !expanded;
+  };
+
+  const createAddressRow = (index, address, label) => {
+    const row = document.createElement("div");
+    row.className = "descriptor-address-row";
+
+    const indexLabel = document.createElement("span");
+    indexLabel.className = "descriptor-address-index";
+    indexLabel.textContent = `#${index}`;
+
+    const value = document.createElement("code");
+    value.textContent = address;
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.className = "descriptor-copy-button";
+    copyButton.dataset.address = address;
+    copyButton.textContent = "Copy";
+    copyButton.setAttribute("aria-label", `Copy ${label} address at index ${index}`);
+
+    row.append(indexLabel, value, copyButton);
+    return row;
+  };
+
+  const clearResults = () => {
+    receivingList.replaceChildren();
+    changeList.replaceChildren();
+  };
+
   const renderRows = (rows) => {
-    resultBody.replaceChildren();
+    clearResults();
     rows.forEach((row) => {
-      const tableRow = document.createElement("tr");
-      const indexCell = document.createElement("td");
-      indexCell.textContent = String(row.index);
-
-      const createAddressCell = (address, label) => {
-        const cell = document.createElement("td");
-        const value = document.createElement("code");
-        value.textContent = address;
-        const copyButton = document.createElement("button");
-        copyButton.type = "button";
-        copyButton.className = "descriptor-copy-button";
-        copyButton.dataset.address = address;
-        copyButton.textContent = "Copy";
-        copyButton.setAttribute("aria-label", `Copy ${label} address at index ${row.index}`);
-        cell.append(value, copyButton);
-        return cell;
-      };
-
-      tableRow.append(
-        indexCell,
-        createAddressCell(row.receiveAddress, "receiving"),
-        createAddressCell(row.changeAddress, "change")
-      );
-      resultBody.appendChild(tableRow);
+      receivingList.appendChild(createAddressRow(row.index, row.receiveAddress, "receiving"));
+      changeList.appendChild(createAddressRow(row.index, row.changeAddress, "change"));
     });
     results.hidden = false;
+    setResultsExpanded(true);
   };
 
   const derive = () => {
@@ -187,7 +204,7 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
         `Derived ${rows.length} receiving and ${rows.length} change addresses locally in your browser.`
       );
     } catch (error) {
-      resultBody.replaceChildren();
+      clearResults();
       results.hidden = true;
       setStatus(error.message, true);
     }
@@ -198,16 +215,20 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     descriptorInput.value = "";
     startInput.value = "0";
     countInput.value = "20";
-    resultBody.replaceChildren();
+    clearResults();
     results.hidden = true;
+    setResultsExpanded(true);
     hasDerivationRequest = false;
     setStatus();
+  });
+  resultsToggle.addEventListener("click", () => {
+    setResultsExpanded(resultsToggle.getAttribute("aria-expanded") !== "true");
   });
   networkSelect.addEventListener("change", () => {
     if (hasDerivationRequest) derive();
   });
-  resultBody.addEventListener("click", async (event) => {
-    const button = event.target.closest(".descriptor-copy-button");
+  resultsContent.addEventListener("click", async (event) => {
+    const button = event.target.closest?.(".descriptor-copy-button");
     if (!button) return;
     try {
       await navigator.clipboard.writeText(button.dataset.address);
