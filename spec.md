@@ -11,6 +11,7 @@ It is designed for a manual workflow where the user enters UTXOs and outputs, op
 - Runtime: Browser-based single-page app.
 - Data processing: Client-side only.
 - Primary artifact: Unsigned PSBT (`toBase64()` output and binary download).
+- Descriptor artifact: Locally derived receiving/change address pairs from a public multipath descriptor.
 - Supported input script types:
   - Native P2WPKH (`OP_0 PUSH20`).
   - Native P2TR (`OP_1 PUSH32`) using BIP86 key-path spending.
@@ -34,10 +35,46 @@ When network changes:
 - All existing output address fields are revalidated.
 - Change address validation state is re-evaluated.
 - The raw transaction summary is re-rendered for the selected network.
+- Existing descriptor results are re-derived locally or replaced with a network validation error.
 
-## 4. Inputs (UTXOs) Section
+## 4. Descriptor Address Derivation
 
-### 4.1 Add / Remove Inputs
+The `Descriptor Addresses` menu opens a dedicated in-app page. It does not alter
+the PSBT Builder form.
+
+### 4.1 Browser-Only Privacy Guarantee
+
+- Descriptor parsing, checksum validation, BIP32 child derivation, script creation,
+  and address encoding run entirely in browser JavaScript bundled with the app.
+- The page makes no HTTP, WebSocket, beacon, or backend request during derivation.
+- Descriptor text and derived addresses are not written to cookies, browser
+  storage, application logs, or the page URL.
+- Extended private keys and WIF private keys are rejected. Only public watch-only
+  descriptors are accepted.
+
+### 4.2 Descriptor Requirements
+
+- One public ranged multipath descriptor is accepted.
+- The descriptor must contain `/<0;1>/*`.
+- Branch `0` derives receiving addresses and branch `1` derives change addresses.
+- A descriptor checksum is optional; when supplied, it must be valid.
+- Any supported public descriptor that resolves to exactly one address per branch
+  and index can be used, including singlesig, multisig/Miniscript, and Taproot.
+- The selected Mainnet/Testnet/Signet network controls extended-key validation and
+  address encoding.
+
+### 4.3 Range and Results
+
+- Start index defaults to `0` and must be within `0..2147483647`.
+- Count defaults to `20` and must be within `1..100`.
+- The complete requested range must remain within the unhardened BIP32 limit.
+- Results show the child index, receiving address, change address, and individual
+  copy buttons.
+- `Clear` removes the descriptor and results and restores the default range.
+
+## 5. Inputs (UTXOs) Section
+
+### 5.1 Add / Remove Inputs
 
 - `+ Add Input` appends a new UTXO row.
 - Each row includes:
@@ -50,7 +87,7 @@ When network changes:
 
 Removing a row immediately updates fee/balance calculations.
 
-### 4.2 Input Row Validation and UI Feedback
+### 5.2 Input Row Validation and UI Feedback
 
 - `scriptPubKey` is classified as P2WPKH or P2TR and decoded against the selected network.
 - If decoding succeeds:
@@ -61,21 +98,21 @@ Removing a row immediately updates fee/balance calculations.
   - Input border is set to red.
 - Empty field uses neutral border color.
 
-### 4.3 Taproot Input Metadata
+### 5.3 Taproot Input Metadata
 
 - P2TR inputs use `witnessUtxo` and support BIP86 key-path spending only.
 - An optional 32-byte x-only `tapInternalKey` can be supplied for external signer compatibility.
 - When supplied, the internal key must be a valid secp256k1 x-only point and its BIP86 tweak must match the input scriptPubKey.
 - Taproot script paths, Merkle roots, control blocks, and Taproot BIP32 derivations are not supported.
 
-### 4.4 Input Value Unit
+### 5.4 Input Value Unit
 
 - User enters input amount in **BTC**.
 - Internal conversion: `Math.round(parseFloat(valueBTC) * 1e8)` to satoshis.
 
-## 5. Outputs Section
+## 6. Outputs Section
 
-### 5.1 Add / Remove Outputs
+### 6.1 Add / Remove Outputs
 
 - `+ Add Output` appends a new output row.
 - Each row includes:
@@ -85,7 +122,7 @@ Removing a row immediately updates fee/balance calculations.
 
 Removing an output row triggers immediate recalculation.
 
-### 5.2 Output Address Validation
+### 6.2 Output Address Validation
 
 - Address validity is checked against selected network.
 - Supports base58 and bech32/bech32m-compatible forms used by the app logic.
@@ -94,20 +131,20 @@ Removing an output row triggers immediate recalculation.
   - Red: invalid
   - Neutral: empty
 
-### 5.3 Output Value Unit
+### 6.3 Output Value Unit
 
 - User enters output amount in **BTC**.
 - Internal conversion: `Math.round(parseFloat(valueBTC) * 1e8)` to satoshis.
 
-## 6. OP_RETURN Feature
+## 7. OP_RETURN Feature
 
-### 6.1 Enable/Disable
+### 7.1 Enable/Disable
 
 - Controlled by checkbox: `Add OP_RETURN message`.
 - Enabling reveals OP_RETURN message input group.
 - Disabling hides the group and resets UI status text to `0 / 83 bytes`.
 
-### 6.2 Input Rules (Current Effective Behavior)
+### 7.2 Input Rules (Current Effective Behavior)
 
 - Message is treated as UTF-8 text input.
 - Maximum payload is **83 bytes**.
@@ -117,21 +154,21 @@ Removing an output row triggers immediate recalculation.
   - Input gets error styling.
   - `Create PSBT` button is disabled.
 
-### 6.3 Hex Prefix Restriction in UI Layer
+### 7.3 Hex Prefix Restriction in UI Layer
 
 - If value starts with `0x`/`0X`, UI enforces:
   - Error message: `Hex input disabled. Enter plain text.`
   - Create button disabled.
 
-### 6.4 PSBT Encoding Behavior
+### 7.4 PSBT Encoding Behavior
 
 - On creation, OP_RETURN data is encoded as a zero-value output:
   - Script form: `OP_RETURN <data>`
   - Value: `0` sat
 
-## 7. Build Actions
+## 8. Build Actions
 
-## 7.1 Create PSBT
+## 8.1 Create PSBT
 
 Clicking `Create PSBT` performs:
 
@@ -143,7 +180,7 @@ Clicking `Create PSBT` performs:
 6. Serialize PSBT to Base64.
 7. Show result panel and store current PSBT in `window.currentPsbt`.
 
-### 7.1.1 Input Mapping to PSBT
+### 8.1.1 Input Mapping to PSBT
 
 Each input is added with:
 
@@ -154,14 +191,14 @@ Each input is added with:
 - `witnessUtxo.value`: satoshis as `BigInt`
 - `tapInternalKey`: optional 32-byte x-only key for compatible P2TR inputs
 
-### 7.1.2 Output Mapping to PSBT
+### 8.1.2 Output Mapping to PSBT
 
 Each standard output is added with:
 
 - `address`
 - `value`: satoshis as `BigInt`
 
-## 7.2 Clear
+## 8.2 Clear
 
 `Clear` resets:
 
@@ -174,18 +211,18 @@ Each standard output is added with:
 
 Then it initializes one default input row and one default output row.
 
-## 7.3 Copy to Clipboard
+## 8.3 Copy to Clipboard
 
 - Copies Base64 PSBT text.
 - Button label temporarily changes to `Copied!` (2 seconds) on success.
 - Shows alert on failure.
 
-## 7.4 Download PSBT File
+## 8.4 Download PSBT File
 
 - Available after PSBT creation (`window.currentPsbt` exists).
 - Generates `unsigned.psbt` as binary (`application/octet-stream`) via Blob download.
 
-## 8. Fee and Balance Behavior
+## 9. Fee and Balance Behavior
 
 The visible mode is currently fixed to **no-change mode** because `includeChange` is hidden/disabled in UI.
 
@@ -202,7 +239,7 @@ In this active mode:
 
 Realtime updates run on input/output edits.
 
-### 8.1 Fee Calculator
+### 9.1 Fee Calculator
 
 - `Fee Calculator` opens a modal using the current input and output amounts.
 - Total inputs are read-only. In absolute-fee mode, every standard output amount
@@ -228,7 +265,7 @@ Realtime updates run on input/output edits.
   summary. `Cancel`, Escape, and backdrop close discard modal changes.
 - Output addresses, ordering, and row count are not changed by the calculator.
 
-## 9. Hidden/Inactive Change-Output Mode (Implemented but not user-exposed)
+## 10. Hidden/Inactive Change-Output Mode (Implemented but not user-exposed)
 
 Code includes a change-address + fee-rate flow behind hidden controls:
 
@@ -238,7 +275,7 @@ Code includes a change-address + fee-rate flow behind hidden controls:
 
 Current UI keeps this mode inaccessible (`includeChange` is hidden and disabled), but logic remains present.
 
-## 10. Reordering (Drag and Drop)
+## 11. Reordering (Drag and Drop)
 
 Both lists support drag-and-drop reordering:
 
@@ -247,7 +284,7 @@ Both lists support drag-and-drop reordering:
 
 Implemented using Sortable behavior with animation and ghost styling.
 
-## 11. Error Handling and User Messages
+## 12. Error Handling and User Messages
 
 Primary user-visible errors include:
 
@@ -260,14 +297,14 @@ Primary user-visible errors include:
 
 Additional internal checks can surface via the generic creation error dialog (for example invalid hex, invalid tx structure, invalid numeric input resulting in downstream failure).
 
-## 12. Numeric and Formatting Conventions
+## 13. Numeric and Formatting Conventions
 
 - Monetary input unit: BTC
 - Internal arithmetic unit: satoshi
 - Displayed precision in summaries: 8 decimal places (`toFixed(8)`)
 - Fee labels and totals are shown in BTC
 
-## 13. Initial State
+## 14. Initial State
 
 On first load:
 
@@ -276,7 +313,7 @@ On first load:
 - OP_RETURN section is hidden.
 - PSBT result section is hidden.
 
-## 14. Non-Goals (Current Version)
+## 15. Non-Goals (Current Version)
 
 - No signing capability.
 - No private key handling.

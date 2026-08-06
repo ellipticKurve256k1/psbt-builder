@@ -1,5 +1,10 @@
 import { vi } from "vitest";
 
+// Keep Buffer and Uint8Array in the same realm for ECC libraries under jsdom.
+// Browsers naturally use one realm; jsdom otherwise combines its Uint8Array
+// constructor with Node's Buffer, which makes ECPair's ECC self-test fail.
+globalThis.Uint8Array = Object.getPrototypeOf(Object.getPrototypeOf(Buffer.alloc(0))).constructor;
+
 if (!HTMLDialogElement.prototype.showModal) {
   HTMLDialogElement.prototype.showModal = function showModal() {
     this.open = true;

@@ -1,6 +1,7 @@
 import { Buffer } from "buffer";
 import * as bitcoin from "bitcoinjs-lib";
 import * as ecc from "@bitcoin-js/tiny-secp256k1-asmjs";
+import { initDescriptorPage } from "./descriptor.js";
 
 window.Buffer = Buffer;
 bitcoin.initEccLib(ecc);
@@ -1315,8 +1316,10 @@ async function fetchRawTxHexFromMempool(txid, networkValue = "mainnet") {
 function initPageMenu() {
   const builderPage = document.getElementById("builderPage");
   const decoderPage = document.getElementById("decoderPage");
+  const descriptorPage = document.getElementById("descriptorPage");
   const openBuilderPageButton = document.getElementById("openBuilderPage");
   const openDecoderPageButton = document.getElementById("openDecoderPage");
+  const openDescriptorPageButton = document.getElementById("openDescriptorPage");
   const rawTxIdInput = document.getElementById("rawTxIdInput");
   const fetchRawTxButton = document.getElementById("fetchRawTxButton");
   const clearRawTxButton = document.getElementById("clearRawTxButton");
@@ -1327,8 +1330,10 @@ function initPageMenu() {
   if (
     !builderPage ||
     !decoderPage ||
+    !descriptorPage ||
     !openBuilderPageButton ||
     !openDecoderPageButton ||
+    !openDescriptorPageButton ||
     !rawTxIdInput ||
     !fetchRawTxButton ||
     !clearRawTxButton ||
@@ -1345,11 +1350,17 @@ function initPageMenu() {
   };
 
   const setPage = (page) => {
-    const showBuilder = page === "builder";
-    builderPage.classList.toggle("hidden", !showBuilder);
-    decoderPage.classList.toggle("hidden", showBuilder);
-    openBuilderPageButton.classList.toggle("active", showBuilder);
-    openDecoderPageButton.classList.toggle("active", !showBuilder);
+    const pages = {
+      builder: [builderPage, openBuilderPageButton],
+      decoder: [decoderPage, openDecoderPageButton],
+      descriptor: [descriptorPage, openDescriptorPageButton],
+    };
+    Object.entries(pages).forEach(([name, [pageElement, button]]) => {
+      const isActive = name === page;
+      pageElement.classList.toggle("hidden", !isActive);
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
   };
 
   const setFetchStatus = (message, hasError = false) => {
@@ -1390,6 +1401,7 @@ function initPageMenu() {
 
   openBuilderPageButton.addEventListener("click", () => setPage("builder"));
   openDecoderPageButton.addEventListener("click", () => setPage("decoder"));
+  openDescriptorPageButton.addEventListener("click", () => setPage("descriptor"));
   networkSelect.addEventListener("change", () => {
     renderRawTxSummary(rawTxHexInput.value);
   });
@@ -2283,6 +2295,10 @@ feeCalculatorDialog.addEventListener("close", () => {
 });
 
 initPageMenu();
+initDescriptorPage({
+  getNetwork: getSelectedNetwork,
+  networkSelect: document.getElementById("network"),
+});
 addInput();
 addOutput();
 

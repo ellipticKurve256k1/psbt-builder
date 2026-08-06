@@ -411,6 +411,83 @@
       display: none;
     }
 
+    .descriptor-layout {
+      display: grid;
+      gap: 0.9rem;
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    #descriptorInput {
+      min-height: 150px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+
+    .descriptor-range-row {
+      display: grid;
+      gap: 0.7rem;
+      grid-template-columns: repeat(2, minmax(0, 180px));
+      margin-top: 0.75rem;
+    }
+
+    .descriptor-range-row label {
+      margin-top: 0;
+    }
+
+    .privacy-notice {
+      margin-bottom: 0.8rem;
+      padding: 0.75rem;
+      border: 1px solid #2f6f61;
+      border-radius: 10px;
+      background: rgba(31, 94, 78, 0.16);
+      color: #bfe8dc;
+    }
+
+    #descriptorStatus {
+      min-height: 1.35rem;
+      margin-top: 0.65rem;
+      color: #9ec0df;
+    }
+
+    #descriptorStatus.error {
+      color: #f08b7f;
+    }
+
+    .descriptor-table-wrap {
+      overflow-x: auto;
+    }
+
+    .descriptor-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    .descriptor-table th,
+    .descriptor-table td {
+      padding: 0.7rem;
+      border-bottom: 1px solid #2f3f50;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .descriptor-table th:first-child,
+    .descriptor-table td:first-child {
+      width: 74px;
+    }
+
+    .descriptor-table td code {
+      display: block;
+      overflow-wrap: anywhere;
+      color: #d7e6f4;
+    }
+
+    .descriptor-copy-button {
+      margin-top: 0.45rem;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.78rem;
+    }
+
     #rawTxHexInput {
       min-height: 170px;
     }
@@ -1255,8 +1332,9 @@
     </header>
 
     <nav class="menu-row">
-      <button type="button" id="openBuilderPage" class="menu-button active">PSBT Builder</button>
-      <button type="button" id="openDecoderPage" class="menu-button">Raw Transaction Hex Decoder</button>
+      <button type="button" id="openBuilderPage" class="menu-button active" aria-pressed="true">PSBT Builder</button>
+      <button type="button" id="openDecoderPage" class="menu-button" aria-pressed="false">Raw Transaction Hex Decoder</button>
+      <button type="button" id="openDescriptorPage" class="menu-button" aria-pressed="false">Descriptor Addresses</button>
     </nav>
 
     <section id="builderPage" class="app-page">
@@ -1413,6 +1491,63 @@
             <h3 class="rawtx-summary-title">Outputs</h3>
             <div id="rawTxOutputSummary" class="rawtx-summary-list"></div>
           </section>
+        </div>
+      </section>
+    </section>
+
+    <section id="descriptorPage" class="app-page hidden">
+      <section class="card descriptor-layout">
+        <div class="card-head">
+          <h2>Descriptor Address Derivation</h2>
+        </div>
+        <div class="privacy-notice" role="note">
+          <strong>Browser-only:</strong> descriptor validation and every receiving/change address derivation happen locally in this browser. No descriptor or derived address is sent to an external service.
+        </div>
+        <div>
+          <label for="descriptorInput">Public Multipath Descriptor</label>
+          <textarea
+            id="descriptorInput"
+            rows="6"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="wpkh([fingerprint/path]xpub.../&lt;0;1&gt;/*)#checksum"
+          ></textarea>
+          <div class="hint">
+            Enter a watch-only ranged descriptor containing /&lt;0;1&gt;/*. Branch 0 is receiving and branch 1 is change. Private keys are rejected.
+          </div>
+          <div class="descriptor-range-row">
+            <div>
+              <label for="descriptorStartIndex">Start Index</label>
+              <input id="descriptorStartIndex" type="number" min="0" max="2147483647" step="1" value="0" inputmode="numeric">
+            </div>
+            <div>
+              <label for="descriptorCount">Count</label>
+              <input id="descriptorCount" type="number" min="1" max="100" step="1" value="20" inputmode="numeric">
+            </div>
+          </div>
+          <div class="action-row">
+            <button id="deriveDescriptorButton" type="button">Derive Addresses</button>
+            <button id="clearDescriptorButton" type="button">Clear</button>
+          </div>
+          <div id="descriptorStatus" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section id="descriptorResults" class="card" hidden>
+        <div class="card-head">
+          <h2>Derived Addresses</h2>
+        </div>
+        <div class="descriptor-table-wrap">
+          <table class="descriptor-table">
+            <thead>
+              <tr>
+                <th scope="col">Index</th>
+                <th scope="col">Receiving (branch 0)</th>
+                <th scope="col">Change (branch 1)</th>
+              </tr>
+            </thead>
+            <tbody id="descriptorResultBody"></tbody>
+          </table>
         </div>
       </section>
     </section>
