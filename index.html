@@ -1539,10 +1539,34 @@
       background: #191b1d;
     }
 
+    .fee-output-row.is-balancing {
+      border-color: #8a541b;
+      background:
+        linear-gradient(135deg, rgba(247, 147, 26, 0.08), transparent 58%),
+        #191b1d;
+    }
+
     .fee-output-name {
       color: #ebe7e3;
       font-size: 0.9rem;
       font-weight: 700;
+    }
+
+    .fee-output-selector {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      gap: 0.42rem;
+      margin: 0.55rem 0 0;
+      color: #d4c2ab;
+      cursor: pointer;
+      font-size: 0.78rem;
+    }
+
+    .fee-output-selector input[type="radio"] {
+      width: auto;
+      margin: 0;
+      accent-color: #f7931a;
     }
 
     .fee-output-row input[type="text"],
@@ -2023,7 +2047,7 @@
     <div class="fee-calculator-shell">
       <header class="fee-calculator-head">
         <h2 id="feeCalculatorTitle">Fee Calculator</h2>
-        <span class="hint">The last output automatically absorbs fee adjustments.</span>
+        <span class="hint">Choose which output automatically absorbs fee adjustments.</span>
       </header>
       <div class="fee-calculator-body">
         <div class="fee-calculator-summary">
@@ -2066,7 +2090,7 @@
         <div class="fee-calculator-field">
           <label for="calculatorFee">Transaction fee (BTC)</label>
           <input id="calculatorFee" type="text" inputmode="decimal" autocomplete="off">
-          <div id="calculatorFeeHint" class="hint">Editing the fee adjusts the last output. Editing that output adjusts the fee.</div>
+          <div id="calculatorFeeHint" class="hint">Editing the fee adjusts the selected auto-adjusted output. Editing that output adjusts the fee.</div>
         </div>
         <div id="feeCalculatorError" class="fee-calculator-error" role="alert" aria-live="polite"></div>
       </div>

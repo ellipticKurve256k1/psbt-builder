@@ -2130,6 +2130,22 @@ function readAllCalculatorOutputs() {
   );
 }
 
+function updateFeeCalculatorBalancingUi() {
+  if (!feeCalculatorState) return;
+  const isRateMode = feeCalculatorState.mode === "rate";
+  const outputRows = Array.from(calculatorOutputList.querySelectorAll(".fee-output-row"));
+
+  outputRows.forEach((row, index) => {
+    const isBalancing = index === feeCalculatorState.balancingIndex;
+    row.classList.toggle("is-balancing", isBalancing);
+    row.querySelector(".fee-output-name").textContent = isBalancing
+      ? `Output #${index + 1} (auto-adjusted)`
+      : `Output #${index + 1}`;
+    row.querySelector(".fee-balancing-radio").checked = isBalancing;
+    row.querySelector(".calculator-output-value").readOnly = isRateMode && isBalancing;
+  });
+}
+
 function updateFeeCalculatorModeUi() {
   const isRateMode = feeCalculatorState?.mode === "rate";
   calculatorAbsoluteMode.classList.toggle("active", !isRateMode);
@@ -2139,12 +2155,9 @@ function updateFeeCalculatorModeUi() {
   calculatorRateField.hidden = !isRateMode;
   calculatorFeeInput.readOnly = isRateMode;
   calculatorFeeHint.textContent = isRateMode
-    ? "Calculated from sat/vB and estimated vsize."
-    : "Editing the fee adjusts the last output. Editing that output adjusts the fee.";
-
-  getCalculatorOutputFields().forEach((field, index) => {
-    field.readOnly = isRateMode && index === feeCalculatorState.balancingIndex;
-  });
+    ? "Calculated from sat/vB and estimated vsize; the selected output is auto-adjusted."
+    : "Editing the fee adjusts the selected auto-adjusted output. Editing that output adjusts the fee.";
+  updateFeeCalculatorBalancingUi();
 }
 
 function validateCalculatorBalance(outputValues, feeSats) {
@@ -2155,7 +2168,7 @@ function validateCalculatorBalance(outputValues, feeSats) {
     throw new Error("Outputs exceed total inputs. Reduce an output amount.");
   }
   if (outputValues.some((value) => value < 0n)) {
-    throw new Error("The last output would be negative.");
+    throw new Error("The selected auto-adjusted output would be negative.");
   }
   if (totalOutputSats + feeSats !== feeCalculatorState.totalInputSats) {
     throw new Error("Outputs and fee do not balance with total inputs.");
@@ -2285,13 +2298,23 @@ function renderFeeCalculatorOutputs(outputRows) {
     const description = document.createElement("div");
     const name = document.createElement("div");
     name.className = "fee-output-name";
-    name.textContent = index === feeCalculatorState.balancingIndex
-      ? `Output #${index + 1} (auto-adjusted)`
-      : `Output #${index + 1}`;
+    name.textContent = `Output #${index + 1}`;
     const address = document.createElement("span");
     address.className = "fee-output-address";
     address.textContent = addressInput?.value.trim() || "No address entered";
-    description.append(name, address);
+
+    const selector = document.createElement("label");
+    selector.className = "fee-output-selector";
+    const balancingRadio = document.createElement("input");
+    balancingRadio.type = "radio";
+    balancingRadio.name = "fee-balancing-output";
+    balancingRadio.className = "fee-balancing-radio";
+    balancingRadio.checked = index === feeCalculatorState.balancingIndex;
+    balancingRadio.setAttribute("aria-label", `Auto-adjust output #${index + 1}`);
+    const selectorText = document.createElement("span");
+    selectorText.textContent = "Auto-adjust this output";
+    selector.append(balancingRadio, selectorText);
+    description.append(name, address, selector);
 
     const calculatorValue = document.createElement("input");
     calculatorValue.type = "text";
@@ -2305,6 +2328,12 @@ function renderFeeCalculatorOutputs(outputRows) {
       recalculateFeeCalculator(
         index === feeCalculatorState.balancingIndex ? "balancing-output" : "fixed-fee"
       );
+    });
+    balancingRadio.addEventListener("change", () => {
+      if (!balancingRadio.checked) return;
+      feeCalculatorState.balancingIndex = index;
+      updateFeeCalculatorBalancingUi();
+      recalculateFeeCalculator("balancing-output");
     });
 
     outputRow.append(description, calculatorValue);
@@ -2329,11 +2358,17 @@ function openFeeCalculator() {
     inputError = error.message;
   }
 
+  const savedBalancingIndex = outputRows.findIndex(
+    (row) => row.dataset.feeBalancingOutput === "true"
+  );
+
   feeCalculatorState = {
     totalInputSats,
     inputError,
     outputRows,
-    balancingIndex: Math.max(0, outputRows.length - 1),
+    balancingIndex: savedBalancingIndex >= 0
+      ? savedBalancingIndex
+      : Math.max(0, outputRows.length - 1),
     mode: "absolute",
     estimatedVsize: null,
   };
@@ -2393,6 +2428,13 @@ function applyFeeCalculator() {
       const valueInput = row.querySelectorAll("input")[1];
       valueInput.value = formatCalculatorBtc(outputValues[index]);
       valueInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    currentRows.forEach((row, index) => {
+      if (index === feeCalculatorState.balancingIndex) {
+        row.dataset.feeBalancingOutput = "true";
+      } else {
+        delete row.dataset.feeBalancingOutput;
+      }
     });
 
     feeCalculatorDialog.close("apply");

@@ -29,6 +29,7 @@ describe("absolute fee calculator", () => {
     expect(document.getElementById("calculatorTotalOutputs").textContent).toBe("0.90000000 BTC");
     expect(document.getElementById("calculatorFee").value).toBe("0.10000000");
     expect(document.querySelector(".fee-output-name").textContent).toContain("auto-adjusted");
+    expect(document.querySelector(".fee-balancing-radio").checked).toBe(true);
     expect(document.getElementById("applyFeeCalculator").disabled).toBe(false);
   });
 
@@ -56,11 +57,109 @@ describe("absolute fee calculator", () => {
     expect(document.getElementById("calculatorFee").value).toBe("0.10000000");
   });
 
+  it("lets the user select and persist a different auto-adjusted output", () => {
+    fillValidBuilder({ outputBtc: "0.4" });
+    document.getElementById("addOutputButton").click();
+    const builderRows = document.querySelectorAll("[data-output]");
+    input(builderRows[1].querySelector(".output-address"), MAINNET_PAYMENT.address);
+    input(builderRows[1].querySelectorAll("input")[1], "0.5");
+
+    document.getElementById("openFeeCalculator").click();
+    const radios = document.querySelectorAll(".fee-balancing-radio");
+    expect(radios).toHaveLength(2);
+    expect(radios[1].checked).toBe(true);
+    radios[0].checked = true;
+    change(radios[0]);
+    expect(document.querySelectorAll(".fee-output-name")[0].textContent)
+      .toContain("auto-adjusted");
+
+    input(document.getElementById("calculatorFee"), "0.2");
+    const calculatorValues = document.querySelectorAll(".calculator-output-value");
+    expect(calculatorValues[0].value).toBe("0.30000000");
+    input(calculatorValues[1], "0.4");
+    expect(calculatorValues[0].value).toBe("0.40000000");
+    input(calculatorValues[0], "0.35");
+    expect(document.getElementById("calculatorFee").value).toBe("0.25000000");
+
+    document.getElementById("applyFeeCalculator").click();
+    expect(builderRows[0].dataset.feeBalancingOutput).toBe("true");
+    expect(builderRows[1].dataset.feeBalancingOutput).toBeUndefined();
+    document.getElementById("openFeeCalculator").click();
+    expect(document.querySelectorAll(".fee-balancing-radio")[0].checked).toBe(true);
+  });
+
+  it("discards uncommitted output selection on Cancel and backdrop dismissal", () => {
+    fillValidBuilder({ outputBtc: "0.4" });
+    document.getElementById("addOutputButton").click();
+    const builderRows = document.querySelectorAll("[data-output]");
+    input(builderRows[1].querySelector(".output-address"), MAINNET_PAYMENT.address);
+    input(builderRows[1].querySelectorAll("input")[1], "0.5");
+
+    document.getElementById("openFeeCalculator").click();
+    let radios = document.querySelectorAll(".fee-balancing-radio");
+    radios[0].checked = true;
+    change(radios[0]);
+    document.getElementById("applyFeeCalculator").click();
+
+    document.getElementById("openFeeCalculator").click();
+    radios = document.querySelectorAll(".fee-balancing-radio");
+    radios[1].checked = true;
+    change(radios[1]);
+    document.getElementById("cancelFeeCalculator").click();
+    document.getElementById("openFeeCalculator").click();
+    expect(document.querySelectorAll(".fee-balancing-radio")[0].checked).toBe(true);
+
+    radios = document.querySelectorAll(".fee-balancing-radio");
+    radios[1].checked = true;
+    change(radios[1]);
+    const dialog = document.getElementById("feeCalculatorDialog");
+    vi.spyOn(dialog, "getBoundingClientRect").mockReturnValue({
+      left: 100, right: 500, top: 100, bottom: 500, width: 400, height: 400, x: 100, y: 100,
+      toJSON: () => ({}),
+    });
+    dialog.dispatchEvent(new MouseEvent("click", { clientX: 10, clientY: 10, bubbles: true }));
+    document.getElementById("openFeeCalculator").click();
+    expect(document.querySelectorAll(".fee-balancing-radio")[0].checked).toBe(true);
+  });
+
+  it("keeps a saved selection when adding outputs and falls back after removing it or clearing", () => {
+    fillValidBuilder({ outputBtc: "0.4" });
+    document.getElementById("addOutputButton").click();
+    let builderRows = document.querySelectorAll("[data-output]");
+    input(builderRows[1].querySelector(".output-address"), MAINNET_PAYMENT.address);
+    input(builderRows[1].querySelectorAll("input")[1], "0.5");
+    document.getElementById("openFeeCalculator").click();
+    const firstRadio = document.querySelectorAll(".fee-balancing-radio")[0];
+    firstRadio.checked = true;
+    change(firstRadio);
+    document.getElementById("applyFeeCalculator").click();
+
+    document.getElementById("addOutputButton").click();
+    builderRows = document.querySelectorAll("[data-output]");
+    input(builderRows[2].querySelector(".output-address"), MAINNET_PAYMENT.address);
+    input(builderRows[2].querySelectorAll("input")[1], "0");
+    document.getElementById("openFeeCalculator").click();
+    expect(document.querySelectorAll(".fee-balancing-radio")[0].checked).toBe(true);
+    document.getElementById("cancelFeeCalculator").click();
+
+    builderRows[0].querySelector(".remove").click();
+    document.getElementById("openFeeCalculator").click();
+    const fallbackRadios = document.querySelectorAll(".fee-balancing-radio");
+    expect(fallbackRadios[fallbackRadios.length - 1].checked).toBe(true);
+    document.getElementById("cancelFeeCalculator").click();
+
+    document.getElementById("clearButton").click();
+    document.getElementById("openFeeCalculator").click();
+    expect(document.querySelectorAll(".fee-balancing-radio")).toHaveLength(1);
+    expect(document.querySelector(".fee-balancing-radio").checked).toBe(true);
+  });
+
   it("shows inline errors for invalid, negative, and unbalanced values", () => {
     fillValidBuilder();
     document.getElementById("openFeeCalculator").click();
     input(document.getElementById("calculatorFee"), "1.1");
-    expect(document.getElementById("feeCalculatorError").textContent).toContain("last output would be negative");
+    expect(document.getElementById("feeCalculatorError").textContent)
+      .toContain("selected auto-adjusted output would be negative");
     expect(document.getElementById("applyFeeCalculator").disabled).toBe(true);
     input(document.getElementById("calculatorFee"), "0.000000001");
     expect(document.getElementById("feeCalculatorError").textContent).toContain("up to 8 decimals");
@@ -130,6 +229,33 @@ describe("fee-rate calculator", () => {
     input(outputRow.querySelector(".output-address"), MAINNET_PAYMENT.address);
     input(document.getElementById("calculatorFeeRate"), "-1");
     expect(document.getElementById("feeCalculatorError").textContent).toContain("non-negative");
+  });
+
+  it("makes the selected output read-only and adjusts it when fixed outputs change", () => {
+    fillValidBuilder({ outputBtc: "0.4" });
+    document.getElementById("addOutputButton").click();
+    const last = document.querySelectorAll("[data-output]")[1];
+    input(last.querySelector(".output-address"), MAINNET_PAYMENT.address);
+    input(last.querySelectorAll("input")[1], "0.5");
+    document.getElementById("openFeeCalculator").click();
+    const radios = document.querySelectorAll(".fee-balancing-radio");
+    radios[0].checked = true;
+    change(radios[0]);
+    document.getElementById("calculatorRateMode").click();
+    input(document.getElementById("calculatorFeeRate"), "1");
+
+    const fields = document.querySelectorAll(".calculator-output-value");
+    expect(fields[0].readOnly).toBe(true);
+    expect(fields[1].readOnly).toBe(false);
+    const before = BigInt(fields[0].value.replace(".", ""));
+    input(fields[1], "0.4");
+    const after = BigInt(fields[0].value.replace(".", ""));
+    expect(after - before).toBe(10_000_000n);
+
+    radios[1].checked = true;
+    change(radios[1]);
+    expect(fields[0].readOnly).toBe(false);
+    expect(fields[1].readOnly).toBe(true);
   });
 
   it("includes enabled OP_RETURN output size in the estimate", () => {
