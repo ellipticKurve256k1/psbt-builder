@@ -147,23 +147,21 @@ Removing an output row triggers immediate recalculation.
 
 - Controlled by checkbox: `Add OP_RETURN message`.
 - Enabling reveals OP_RETURN message input group.
-- Disabling hides the group and resets UI status text to `0 / 83 bytes`.
+- Disabling hides the group and resets UI status text to `0 / 100,000 bytes`.
 
 ### 7.2 Input Rules (Current Effective Behavior)
 
 - Message is treated as UTF-8 text input.
-- Maximum payload is **83 bytes**.
-- Byte counter is shown live (`N / 83 bytes`).
-- If byte count exceeds limit:
-  - Counter switches to error state.
-  - Input gets error styling.
-  - `Create PSBT` button is disabled.
+- The standard threshold is **83 bytes** and the hard maximum is **100,000 bytes**.
+- Byte counter is shown live (`N / 100,000 bytes`).
+- At 84–100,000 bytes, the counter and input are highlighted red with a non-standard warning, but PSBT creation remains enabled.
+- Above 100,000 bytes, the red state becomes a blocking error and `Create PSBT` is disabled.
 
-### 7.3 Hex Prefix Restriction in UI Layer
+### 7.3 Hex Input
 
-- If value starts with `0x`/`0X`, UI enforces:
-  - Error message: `Hex input disabled. Enter plain text.`
-  - Create button disabled.
+- Values starting with `0x`/`0X` are interpreted as hexadecimal payload bytes.
+- Hex input must contain only hexadecimal characters and an even number of digits.
+- The same 83-byte warning threshold and 100,000-byte hard maximum apply.
 
 ### 7.4 PSBT Encoding Behavior
 
@@ -294,7 +292,7 @@ Implemented using Sortable behavior with animation and ghost styling.
 Primary user-visible errors include:
 
 - `Enter an OP_RETURN message.`
-- `OP_RETURN data exceeds 83 bytes.`
+- `OP_RETURN data exceeds 100000 bytes.`
 - `Outputs exceed inputs!`
 - `Error creating PSBT: <reason>`
 - `Failed to copy: <error>`

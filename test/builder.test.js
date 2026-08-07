@@ -124,7 +124,7 @@ describe("PSBT creation", () => {
     enabled.checked = true;
     change(enabled);
     input(document.getElementById("opReturnMessage"), "한");
-    expect(document.getElementById("opReturnByteStatus").textContent).toBe("3 / 83 bytes");
+    expect(document.getElementById("opReturnByteStatus").textContent).toBe("3 / 100,000 bytes");
     document.getElementById("createPsbt").click();
     expect(Buffer.from(app.extractOpReturnData(window.currentPsbt.txOutputs[1].script)).toString()).toBe("한");
 
@@ -137,22 +137,62 @@ describe("PSBT creation", () => {
     expect(Buffer.from(app.extractOpReturnData(window.currentPsbt.txOutputs[1].script)).toString("hex")).toBe("00ff");
   });
 
-  it("enforces OP_RETURN input errors and the exact byte boundary", () => {
+  it("warns above 83 OP_RETURN bytes and enforces the 100,000-byte maximum", () => {
     const enabled = document.getElementById("includeOpReturn");
     enabled.checked = true;
     change(enabled);
     const message = document.getElementById("opReturnMessage");
     input(message, "x".repeat(83));
     expect(document.getElementById("createPsbt").disabled).toBe(false);
+    expect(document.getElementById("opReturnByteStatus").classList.contains("warning")).toBe(false);
+
     input(message, "x".repeat(84));
+    expect(document.getElementById("opReturnByteStatus").textContent).toContain("exceeds standard 83-byte limit");
+    expect(document.getElementById("opReturnByteStatus").classList.contains("warning")).toBe(true);
+    expect(message.classList.contains("warning")).toBe(true);
+    expect(document.getElementById("createPsbt").disabled).toBe(false);
+
+    fillValidBuilder();
+    input(message, "x".repeat(100_000));
+    document.getElementById("createPsbt").click();
+    expect(app.extractOpReturnData(window.currentPsbt.txOutputs[1].script)).toHaveLength(100_000);
+
+    input(message, "x".repeat(100_001));
     expect(document.getElementById("createPsbt").disabled).toBe(true);
     expect(document.getElementById("opReturnByteStatus").classList.contains("error")).toBe(true);
+    expect(document.getElementById("opReturnByteStatus").textContent).toContain("exceeds maximum");
+
     input(message, "0x0");
     expect(document.getElementById("opReturnByteStatus").textContent).toContain("even");
     enabled.checked = false;
     change(enabled);
-    expect(document.getElementById("opReturnByteStatus").textContent).toBe("0 / 83 bytes");
+    expect(document.getElementById("opReturnByteStatus").textContent).toBe("0 / 100,000 bytes");
     expect(document.getElementById("createPsbt").disabled).toBe(false);
+  });
+
+  it("applies OP_RETURN boundaries to hexadecimal and multibyte UTF-8 payloads", () => {
+    const enabled = document.getElementById("includeOpReturn");
+    const message = document.getElementById("opReturnMessage");
+    enabled.checked = true;
+    change(enabled);
+
+    input(message, `0x${"ab".repeat(100_000)}`);
+    expect(document.getElementById("opReturnByteStatus").classList.contains("warning")).toBe(true);
+    expect(document.getElementById("createPsbt").disabled).toBe(false);
+
+    input(message, `0x${"ab".repeat(100_001)}`);
+    expect(document.getElementById("createPsbt").disabled).toBe(true);
+
+    input(message, "한".repeat(28));
+    expect(document.getElementById("opReturnByteStatus").textContent).toContain("84 / 100,000 bytes");
+    expect(document.getElementById("createPsbt").disabled).toBe(false);
+
+    input(message, "한".repeat(33_334));
+    expect(document.getElementById("opReturnByteStatus").textContent).toContain("100,002 / 100,000 bytes");
+    expect(document.getElementById("createPsbt").disabled).toBe(true);
+
+    enabled.checked = false;
+    change(enabled);
   });
 
   it.each([

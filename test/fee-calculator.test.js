@@ -151,6 +151,28 @@ describe("fee-rate calculator", () => {
     expect(withOpReturn).toBeGreaterThan(withoutOpReturn);
   });
 
+  it("estimates 100,000-byte OP_RETURN payloads but rejects payloads above the hard maximum", () => {
+    fillValidBuilder();
+    const enabled = document.getElementById("includeOpReturn");
+    enabled.checked = true;
+    change(enabled);
+    input(document.getElementById("opReturnMessage"), "x".repeat(100_000));
+    document.getElementById("openFeeCalculator").click();
+    document.getElementById("calculatorRateMode").click();
+    expect(document.getElementById("feeCalculatorError").textContent).toBe("");
+    expect(Number.parseInt(document.getElementById("calculatorVsize").textContent, 10)).toBeGreaterThan(0);
+
+    document.getElementById("cancelFeeCalculator").click();
+    input(document.getElementById("opReturnMessage"), "x".repeat(100_001));
+    document.getElementById("openFeeCalculator").click();
+    document.getElementById("calculatorRateMode").click();
+    expect(document.getElementById("feeCalculatorError").textContent).toContain("exceeds 100000 bytes");
+
+    document.getElementById("cancelFeeCalculator").click();
+    enabled.checked = false;
+    change(enabled);
+  });
+
   it("switches back to absolute mode with editable values", () => {
     fillValidBuilder();
     document.getElementById("openFeeCalculator").click();

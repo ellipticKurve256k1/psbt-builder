@@ -1512,7 +1512,9 @@ document.getElementById("createPsbt").onclick = () => {
         opReturnData = Buffer.from(message, "utf8");
       }
 
-      if (opReturnData.length > 83) return alert("OP_RETURN data exceeds 83 bytes.");
+      if (opReturnData.length > OP_RETURN_MAX_BYTES) {
+        return alert(`OP_RETURN data exceeds ${OP_RETURN_MAX_BYTES} bytes.`);
+      }
     }
 
     if (includeChange) {
@@ -1768,7 +1770,8 @@ document.getElementById("includeOpReturn").addEventListener("change", (event) =>
   document.getElementById("opReturnGroup").style.display = event.target.checked ? "" : "none";
 });
 
-const OP_RETURN_MAX_BYTES = 83;
+const OP_RETURN_STANDARD_BYTES = 83;
+const OP_RETURN_MAX_BYTES = 100_000;
 const opReturnMessageInput = document.getElementById("opReturnMessage");
 const opReturnByteStatus = document.getElementById("opReturnByteStatus");
 const createPsbtButton = document.getElementById("createPsbt");
@@ -1788,20 +1791,27 @@ function updateOpReturnState() {
   const includeOpReturn = document.getElementById("includeOpReturn");
   const enabled = includeOpReturn.checked;
   const state = getOpReturnByteState(opReturnMessageInput.value.trim());
+  const exceedsStandard = state.bytes > OP_RETURN_STANDARD_BYTES;
   const tooLarge = state.bytes > OP_RETURN_MAX_BYTES;
+  const hasWarning = enabled && exceedsStandard && !tooLarge && !state.error;
   const hasError = enabled && (tooLarge || !!state.error);
+  const formattedMaxBytes = OP_RETURN_MAX_BYTES.toLocaleString("en-US");
 
   if (!enabled) {
-    opReturnByteStatus.textContent = "0 / 83 bytes";
+    opReturnByteStatus.textContent = `0 / ${formattedMaxBytes} bytes`;
   } else if (state.error) {
-    opReturnByteStatus.textContent = `${state.error} (0 / 83 bytes)`;
+    opReturnByteStatus.textContent = `${state.error} (0 / ${formattedMaxBytes} bytes)`;
   } else if (tooLarge) {
-    opReturnByteStatus.textContent = `${state.bytes} / 83 bytes (exceeds limit)`;
+    opReturnByteStatus.textContent = `${state.bytes.toLocaleString("en-US")} / ${formattedMaxBytes} bytes (exceeds maximum)`;
+  } else if (hasWarning) {
+    opReturnByteStatus.textContent = `${state.bytes.toLocaleString("en-US")} / ${formattedMaxBytes} bytes (exceeds standard ${OP_RETURN_STANDARD_BYTES}-byte limit)`;
   } else {
-    opReturnByteStatus.textContent = `${state.bytes} / 83 bytes`;
+    opReturnByteStatus.textContent = `${state.bytes.toLocaleString("en-US")} / ${formattedMaxBytes} bytes`;
   }
 
+  opReturnByteStatus.classList.toggle("warning", hasWarning);
   opReturnByteStatus.classList.toggle("error", hasError);
+  opReturnMessageInput.classList.toggle("warning", hasWarning);
   opReturnMessageInput.classList.toggle("error", hasError);
   createPsbtButton.disabled = hasError;
 }
@@ -1907,7 +1917,9 @@ function getCalculatorOpReturnScript() {
   } else {
     data = Buffer.from(message, "utf8");
   }
-  if (data.length > 83) throw new Error("OP_RETURN data exceeds 83 bytes.");
+  if (data.length > OP_RETURN_MAX_BYTES) {
+    throw new Error(`OP_RETURN data exceeds ${OP_RETURN_MAX_BYTES} bytes.`);
+  }
 
   return bitcoin.script.compile([bitcoin.opcodes.OP_RETURN, data]);
 }

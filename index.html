@@ -302,11 +302,13 @@
       color: #9ec0df;
     }
 
+    #opReturnByteStatus.warning,
     #opReturnByteStatus.error {
       color: var(--danger);
       font-weight: 600;
     }
 
+    #opReturnMessage.warning,
     #opReturnMessage.error {
       border-color: var(--danger);
       box-shadow: 0 0 0 3px rgba(227, 106, 118, 0.18);
@@ -1503,8 +1505,8 @@
             <div id="opReturnGroup" style="display:none;">
               <label for="opReturnMessage">OP_RETURN Message (text or 0x hex)</label>
               <input type="text" id="opReturnMessage" placeholder="Enter text message">
-              <div class="hint">Maximum 83 bytes. Hex format: 0x...</div>
-              <div id="opReturnByteStatus">0 / 83 bytes</div>
+              <div class="hint">Maximum 100,000 bytes. Payloads over 83 bytes may be non-standard. Hex format: 0x...</div>
+              <div id="opReturnByteStatus" role="status" aria-live="polite">0 / 100,000 bytes</div>
             </div>
 
             <label for="sighashType" style="margin-top:0.9rem;">Sighash Type (all inputs)</label>
