@@ -409,6 +409,10 @@ function initDescriptorPage({
   const resultsContent = document.getElementById("descriptorResultsContent");
   const receivingList = document.getElementById("receivingAddressList");
   const changeList = document.getElementById("changeAddressList");
+  const fundedList = document.getElementById("fundedAddressList");
+  const receivingCount = document.getElementById("receivingAddressCount");
+  const changeCount = document.getElementById("changeAddressCount");
+  const fundedCount = document.getElementById("fundedAddressCount");
   const privacyDialog = document.getElementById("descriptorPrivacyDialog");
   const privacyOkButton = document.getElementById("descriptorPrivacyOk");
   const privacyCancelButton = document.getElementById("descriptorPrivacyCancel");
@@ -435,6 +439,10 @@ function initDescriptorPage({
     !resultsContent ||
     !receivingList ||
     !changeList ||
+    !fundedList ||
+    !receivingCount ||
+    !changeCount ||
+    !fundedCount ||
     !privacyDialog ||
     !privacyOkButton ||
     !privacyCancelButton ||
@@ -623,6 +631,10 @@ function initDescriptorPage({
     badge.className = `descriptor-address-badge ${classification}`;
     badge.textContent = classification === "funded" ? "Funded" : "Unused";
 
+    const branchBadge = document.createElement("span");
+    branchBadge.className = "descriptor-address-branch";
+    branchBadge.textContent = label === "receiving" ? "Receiving" : "Change";
+
     const actions = document.createElement("div");
     actions.className = "descriptor-address-actions";
 
@@ -668,22 +680,27 @@ function initDescriptorPage({
     }
     const details = document.createElement("div");
     details.className = "descriptor-address-details";
+    if (classification === "funded") details.append(branchBadge);
     details.append(badge, balance);
 
-    row.append(indexLabel, value, details, actions);
+    row.append(indexLabel, details, value, actions);
     return row;
   };
 
-  const createEmptyState = (label) => {
+  const createEmptyState = (message) => {
     const empty = document.createElement("div");
     empty.className = "descriptor-empty-state";
-    empty.textContent = `No funded or unused ${label} addresses were found during this scan.`;
+    empty.textContent = message;
     return empty;
   };
 
   const clearResults = () => {
     receivingList.replaceChildren();
     changeList.replaceChildren();
+    fundedList.replaceChildren();
+    receivingCount.textContent = "0 unused";
+    changeCount.textContent = "0 unused";
+    fundedCount.textContent = "0 funded";
     renderedInputMetadata.clear();
   };
 
@@ -704,7 +721,7 @@ function initDescriptorPage({
       });
 
       if (receiveClassification === "funded") {
-        receivingList.appendChild(
+        fundedList.appendChild(
           createAddressRow(
             row.index,
             row.receiveAddress,
@@ -722,7 +739,7 @@ function initDescriptorPage({
         receivingUnusedCount += 1;
       }
       if (changeClassification === "funded") {
-        changeList.appendChild(
+        fundedList.appendChild(
           createAddressRow(
             row.index,
             row.changeAddress,
@@ -740,12 +757,23 @@ function initDescriptorPage({
         changeUnusedCount += 1;
       }
     });
-    if (receivingFundedCount + receivingUnusedCount === 0) {
-      receivingList.appendChild(createEmptyState("receiving"));
+    if (receivingUnusedCount === 0) {
+      receivingList.appendChild(
+        createEmptyState("No unused receiving addresses were found during this scan.")
+      );
     }
-    if (changeFundedCount + changeUnusedCount === 0) {
-      changeList.appendChild(createEmptyState("change"));
+    if (changeUnusedCount === 0) {
+      changeList.appendChild(
+        createEmptyState("No unused change addresses were found during this scan.")
+      );
     }
+    const totalFundedCount = receivingFundedCount + changeFundedCount;
+    if (totalFundedCount === 0) {
+      fundedList.appendChild(createEmptyState("No funded addresses were found during this scan."));
+    }
+    receivingCount.textContent = `${receivingUnusedCount} unused`;
+    changeCount.textContent = `${changeUnusedCount} unused`;
+    fundedCount.textContent = `${totalFundedCount} funded`;
     results.hidden = false;
     setResultsExpanded(true);
     return {

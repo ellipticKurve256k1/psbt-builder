@@ -525,8 +525,10 @@ describe("descriptor address page", () => {
 
     const receivingRows = document.querySelectorAll("#receivingAddressList .descriptor-address-row");
     const changeRows = document.querySelectorAll("#changeAddressList .descriptor-address-row");
+    const fundedRows = document.querySelectorAll("#fundedAddressList .descriptor-address-row");
     expect(receivingRows).toHaveLength(2);
     expect(changeRows).toHaveLength(2);
+    expect(fundedRows).toHaveLength(0);
     expect(receivingRows[0].textContent).toContain(expectedWpkh(rootA, 0, 2));
     expect(changeRows[0].textContent).toContain(expectedWpkh(rootA, 1, 2));
     expect(receivingRows[0].textContent).toContain("Unused");
@@ -541,6 +543,9 @@ describe("descriptor address page", () => {
     expect(document.getElementById("descriptorDerivationPanel").getAttribute("aria-busy")).toBe(
       "false"
     );
+    expect(document.getElementById("receivingAddressCount").textContent).toBe("2 unused");
+    expect(document.getElementById("changeAddressCount").textContent).toBe("2 unused");
+    expect(document.getElementById("fundedAddressCount").textContent).toBe("0 funded");
 
     receivingRows[0].querySelector(".descriptor-copy-button").click();
     await vi.waitFor(() =>
@@ -552,14 +557,18 @@ describe("descriptor address page", () => {
     expect(document.getElementById("descriptorStartIndex").value).toBe("0");
     expect(document.getElementById("descriptorCount").value).toBe("20");
     expect(document.getElementById("descriptorResults").hidden).toBe(true);
+    expect(document.querySelectorAll("#fundedAddressList .descriptor-address-row")).toHaveLength(0);
+    expect(document.getElementById("fundedAddressCount").textContent).toBe("0 funded");
   });
 
-  it("shows funded and requested unused addresses while hiding previously used empty ones", async () => {
+  it("separates funded addresses from unused receiving and change addresses", async () => {
     const usedEmptyReceive = expectedWpkh(rootA, 0, 0);
     const fundedReceive = expectedWpkh(rootA, 0, 1);
+    const fundedChange = expectedWpkh(rootA, 1, 0);
     mockEsploraFetch((url) => {
       if (url.includes(usedEmptyReceive)) return { balance: 0, chainTxCount: 1 };
       if (url.includes(fundedReceive)) return { balance: 25_000 };
+      if (url.includes(fundedChange)) return { balance: 15_000 };
       return { balance: 0 };
     });
     input(document.getElementById("descriptorInput"), wpkhDescriptor);
@@ -567,18 +576,27 @@ describe("descriptor address page", () => {
     confirmDescriptorDerivation();
 
     await vi.waitFor(() =>
-      expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(3)
+      expect(document.querySelectorAll("#fundedAddressList .descriptor-address-row")).toHaveLength(2)
     );
-    expect(document.getElementById("receivingAddressList").textContent).toContain(fundedReceive);
+    expect(document.getElementById("receivingAddressList").textContent).not.toContain(fundedReceive);
     expect(document.getElementById("receivingAddressList").textContent)
       .not.toContain(usedEmptyReceive);
-    expect(document.querySelectorAll("#receivingAddressList .descriptor-address-badge.funded"))
-      .toHaveLength(1);
+    expect(document.getElementById("changeAddressList").textContent).not.toContain(fundedChange);
     expect(document.querySelectorAll("#receivingAddressList .descriptor-address-badge.unused"))
       .toHaveLength(2);
     expect(document.querySelectorAll("#changeAddressList .descriptor-address-row")).toHaveLength(2);
     expect(document.querySelectorAll("#changeAddressList .descriptor-address-badge.unused"))
       .toHaveLength(2);
+    const fundedRows = document.querySelectorAll("#fundedAddressList .descriptor-address-row");
+    expect(fundedRows[0].textContent).toContain(fundedChange);
+    expect(fundedRows[0].querySelector(".descriptor-address-branch").textContent).toBe("Change");
+    expect(fundedRows[1].textContent).toContain(fundedReceive);
+    expect(fundedRows[1].querySelector(".descriptor-address-branch").textContent).toBe("Receiving");
+    expect(document.querySelectorAll("#fundedAddressList .descriptor-address-badge.funded"))
+      .toHaveLength(2);
+    expect(document.getElementById("receivingAddressCount").textContent).toBe("2 unused");
+    expect(document.getElementById("changeAddressCount").textContent).toBe("2 unused");
+    expect(document.getElementById("fundedAddressCount").textContent).toBe("2 funded");
   });
 
   it("selects confirmed and opt-in unconfirmed UTXOs and imports them as Builder inputs", async () => {
@@ -602,11 +620,11 @@ describe("descriptor address page", () => {
     input(document.getElementById("descriptorCount"), "1");
     confirmDescriptorDerivation();
     await vi.waitFor(() =>
-      expect(document.querySelector("#receivingAddressList .descriptor-use-input-button"))
+      expect(document.querySelector("#fundedAddressList .descriptor-use-input-button"))
         .not.toBeNull()
     );
 
-    const inputButton = document.querySelector("#receivingAddressList .descriptor-use-input-button");
+    const inputButton = document.querySelector("#fundedAddressList .descriptor-use-input-button");
     expect(inputButton.disabled).toBe(false);
     inputButton.click();
     await vi.waitFor(() => expect(document.getElementById("descriptorUtxoDialog").open).toBe(true));
@@ -686,13 +704,13 @@ describe("descriptor address page", () => {
     confirmDescriptorDerivation();
 
     await vi.waitFor(() =>
-      expect(document.querySelector("#receivingAddressList .descriptor-use-input-button"))
+      expect(document.querySelector("#fundedAddressList .descriptor-use-input-button"))
         .not.toBeNull()
     );
-    const button = document.querySelector("#receivingAddressList .descriptor-use-input-button");
+    const button = document.querySelector("#fundedAddressList .descriptor-use-input-button");
     expect(button.disabled).toBe(true);
     expect(button.title).toContain("Only P2WPKH");
-    expect(document.querySelector("#receivingAddressList .descriptor-input-support-reason").textContent)
+    expect(document.querySelector("#fundedAddressList .descriptor-input-support-reason").textContent)
       .toContain("Only P2WPKH");
   });
 
@@ -703,10 +721,10 @@ describe("descriptor address page", () => {
     input(document.getElementById("descriptorCount"), "1");
     confirmDescriptorDerivation();
     await vi.waitFor(() =>
-      expect(document.querySelector("#receivingAddressList .descriptor-use-input-button"))
+      expect(document.querySelector("#fundedAddressList .descriptor-use-input-button"))
         .not.toBeNull()
     );
-    const button = document.querySelector("#receivingAddressList .descriptor-use-input-button");
+    const button = document.querySelector("#fundedAddressList .descriptor-use-input-button");
     button.click();
     await vi.waitFor(() =>
       expect(document.getElementById("descriptorStatus").textContent).toContain("No current UTXOs")
@@ -752,7 +770,7 @@ describe("descriptor address page", () => {
       .closest(".descriptor-address-row")
       .querySelector(".descriptor-use-output-button");
 
-    document.querySelector(".descriptor-use-output-button").click();
+    document.querySelector("#fundedAddressList .descriptor-use-output-button").click();
     const firstOutput = document.querySelector("[data-output]");
     expect(firstOutput.querySelector(".output-address").value).toBe(address);
     expect(firstOutput.querySelectorAll("input")[1].value).toBe("");
@@ -786,14 +804,17 @@ describe("descriptor address page", () => {
     );
     expect(document.getElementById("descriptorStatus").classList.contains("warning")).toBe(true);
     expect(document.getElementById("receivingAddressList").textContent).toContain(
-      "No funded or unused receiving addresses"
+      "No unused receiving addresses"
     );
     expect(document.getElementById("changeAddressList").textContent).toContain(
-      "No funded or unused change addresses"
+      "No unused change addresses"
+    );
+    expect(document.getElementById("fundedAddressList").textContent).toContain(
+      "No funded addresses"
     );
   });
 
-  it("stacks receiving above change in independently scrollable components and collapses results", async () => {
+  it("shows three independently scrollable result components and collapses them together", async () => {
     input(document.getElementById("descriptorInput"), wpkhDescriptor);
     input(document.getElementById("descriptorCount"), "2");
     confirmDescriptorDerivation();
@@ -803,13 +824,19 @@ describe("descriptor address page", () => {
 
     const receivingList = document.getElementById("receivingAddressList");
     const changeList = document.getElementById("changeAddressList");
+    const fundedList = document.getElementById("fundedAddressList");
     const content = document.getElementById("descriptorResultsContent");
     const toggle = document.getElementById("descriptorResultsToggle");
     expect(receivingList.classList.contains("descriptor-address-scroll")).toBe(true);
     expect(changeList.classList.contains("descriptor-address-scroll")).toBe(true);
+    expect(fundedList.classList.contains("descriptor-address-scroll")).toBe(true);
     expect(
       receivingList.compareDocumentPosition(changeList) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+    expect(
+      changeList.compareDocumentPosition(fundedList) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(content.querySelectorAll(".descriptor-address-component")).toHaveLength(3);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(content.hidden).toBe(false);
 

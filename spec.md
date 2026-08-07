@@ -87,20 +87,22 @@ Builder form only when the user selects `Use as Output` on a displayed address.
 - The complete scan remains within the unhardened BIP32 limit.
 - While deriving and fetching balances, the page shows a loading spinner, marks
   the panel busy, and disables the derive button until the result or error is ready.
-- Results open in an expandable/collapsible panel. Receiving addresses appear in
-  the upper component and change addresses in the lower component.
-- Each address component has its own bounded vertical scroll area, so long ranges
-  do not make the surrounding page scroll with the list.
+- Results open in an expandable/collapsible panel containing separate receiving,
+  change, and funded-address components with visible result counts. The three
+  components appear side by side on desktop and stack on narrower screens.
+- Each component has its own bounded vertical scroll area, so long ranges do not
+  make the surrounding page scroll with the list.
 - Available balance is calculated in satoshis as confirmed funded minus confirmed
   spent plus mempool funded minus mempool spent.
 - An address is funded when available balance is positive, unused when balance and
   confirmed/mempool transaction counts are zero, and used-empty otherwise.
-- All funded addresses encountered and the first requested number of unused
-  addresses per branch are displayed in child-index order. Used-empty addresses
-  are hidden to avoid address reuse.
+- The receiving and change components contain only the first requested number of
+  unused addresses for their respective branches. All funded addresses encountered
+  appear in the consolidated funded component with a receiving/change branch badge.
+  Funded rows are ordered by child index, receiving before change at the same index.
+  Used-empty addresses are hidden to avoid address reuse.
 - Funded and unused rows have distinct badges. Funded rows show their BTC/satoshi
-  balance; unused rows show zero. An empty-state message appears when a branch has
-  no displayable results.
+  balance; unused rows show zero. Each component has its own empty-state message.
 - Reaching the 200-pair cap returns the available partial results and an inline
   warning with the unused counts found.
 - Balance requests use at most four concurrent HTTP requests. A failed or malformed

@@ -14,7 +14,10 @@ browser. The descriptor and keys are never sent to an external service or stored
 by the application. Derived addresses are sent to the selected network's public
 Blockstream Esplora API for balance and usage lookup. The result keeps funded
 addresses and adds the requested number of never-used receiving and change
-addresses, scanning at most 200 pairs. Use a public watch-only descriptor;
+addresses, scanning at most 200 pairs. Results are separated into receiving,
+change, and funded-address panels with independent scrolling. The funded panel
+identifies the originating branch and loads exact UTXOs only when requested.
+Use a public watch-only descriptor;
 extended private keys and WIF private keys are rejected. A displayed address can
 be copied or added directly to the PSBT Builder as an output.
 
