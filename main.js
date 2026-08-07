@@ -444,6 +444,99 @@ function applyAddressAsOutput(address) {
   addressInput.focus();
 }
 
+function applyDescriptorUtxosAsInputs({ utxos, scriptPubKey, tapInternalKey = "" }) {
+  if (!Array.isArray(utxos) || utxos.length === 0) return { added: 0, skipped: 0 };
+  const normalizedScript = String(scriptPubKey ?? "").trim().toLowerCase();
+  const scriptBytes = hexToBytes(normalizedScript);
+  const inputType = classifySupportedInputScript(scriptBytes, getSelectedNetwork())?.type;
+  if (!inputType) throw new Error("Only P2WPKH and P2TR descriptor inputs are supported.");
+
+  const normalizedTapInternalKey = String(tapInternalKey ?? "").trim().toLowerCase();
+  if (inputType === "p2tr") {
+    const parsedInternalKey = parseBip86InternalKey(
+      normalizedTapInternalKey,
+      scriptBytes,
+      getSelectedNetwork(),
+      "Descriptor Taproot internal key"
+    );
+    if (!parsedInternalKey) throw new Error("A compatible Taproot internal key is required.");
+  }
+
+  const existingOutpoints = new Set();
+  document.querySelectorAll("[data-utxo]").forEach((row) => {
+    const txid = row.querySelector(".txid-input").value.trim().toLowerCase();
+    const vout = row.querySelector(".vout-input").value.trim();
+    if (/^[0-9a-f]{64}$/.test(txid) && /^\d+$/.test(vout)) {
+      existingOutpoints.add(`${txid}:${Number(vout)}`);
+    }
+  });
+
+  const uniqueUtxos = [];
+  let skipped = 0;
+  for (const utxo of utxos) {
+    const txid = String(utxo?.txid ?? "").trim().toLowerCase();
+    const vout = utxo?.vout;
+    const valueSats = utxo?.valueSats;
+    if (!/^[0-9a-f]{64}$/.test(txid)) throw new Error("Selected UTXO has an invalid txid.");
+    if (!Number.isSafeInteger(vout) || vout < 0 || vout > 0xffffffff) {
+      throw new Error("Selected UTXO has an invalid vout.");
+    }
+    if (typeof valueSats !== "bigint" || valueSats < 0n || valueSats > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("Selected UTXO has an invalid value.");
+    }
+    const outpoint = `${txid}:${vout}`;
+    if (existingOutpoints.has(outpoint)) {
+      skipped += 1;
+      continue;
+    }
+    existingOutpoints.add(outpoint);
+    uniqueUtxos.push({ txid, vout, valueSats });
+  }
+
+  const isBlankInputRow = (row) =>
+    row.querySelector(".txid-input").value.trim() === ""
+    && row.querySelector(".vout-input").value.trim() === ""
+    && row.querySelector(".value-input").value.trim() === ""
+    && row.querySelector(".script-input").value.trim() === "";
+
+  let firstAddedRow = null;
+  uniqueUtxos.forEach((utxo) => {
+    let row = Array.from(document.querySelectorAll("[data-utxo]")).find(isBlankInputRow);
+    const valueBtc = satoshiToBtcString(utxo.valueSats);
+    if (!row) {
+      addInput(
+        null,
+        utxo.txid,
+        String(utxo.vout),
+        "fffffffd",
+        valueBtc,
+        normalizedScript,
+        "INHERIT",
+        inputType === "p2tr" ? normalizedTapInternalKey : ""
+      );
+      row = document.querySelector("[data-utxo]:last-child");
+    } else {
+      row.querySelector(".txid-input").value = utxo.txid;
+      row.querySelector(".vout-input").value = String(utxo.vout);
+      row.querySelector(".value-input").value = valueBtc;
+      row.querySelector(".script-input").value = normalizedScript;
+      row.querySelector(".script-input").dispatchEvent(new Event("input", { bubbles: true }));
+      row.querySelector(".tap-internal-key").value =
+        inputType === "p2tr" ? normalizedTapInternalKey : "";
+      row.querySelector(".tap-internal-key").dispatchEvent(new Event("input", { bubbles: true }));
+      row.querySelector(".value-input").dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    if (!firstAddedRow) firstAddedRow = row;
+  });
+
+  if (uniqueUtxos.length > 0) {
+    updateFeeCalc();
+    document.getElementById("openBuilderPage").click();
+    firstAddedRow.querySelector(".txid-input").focus();
+  }
+  return { added: uniqueUtxos.length, skipped };
+}
+
 function refreshAllScriptLabels() {
   document
     .querySelectorAll(".script-input")
@@ -2336,6 +2429,7 @@ initDescriptorPage({
   getNetworkValue: () => document.getElementById("network").value,
   networkSelect: document.getElementById("network"),
   onUseAsOutput: applyAddressAsOutput,
+  onUseUtxosAsInputs: applyDescriptorUtxosAsInputs,
   onCancelPrivacyWarning: () => document.getElementById("openBuilderPage").click(),
 });
 addInput();
@@ -2345,6 +2439,7 @@ export {
   NETWORK_CONFIG,
   getNetworkConfig,
   applyAddressAsOutput,
+  applyDescriptorUtxosAsInputs,
   validateBitcoinAddress,
   hexToBytes,
   isP2wpkhScript,

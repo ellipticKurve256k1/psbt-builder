@@ -23,6 +23,11 @@ Blockstream can observe the requesting IP address, correlate queried addresses,
 and infer wallet balances, history, and UTXOs. Cancel returns to the PSBT Builder
 without sending an Esplora request. Changing networks requires a new confirmed scan.
 
+Funded P2WPKH and plain key-path P2TR rows can fetch their current Esplora UTXOs.
+A selection dialog preselects confirmed outpoints, leaves unconfirmed outpoints
+unchecked, and imports the chosen outpoints into PSBT Builder inputs. Unsupported
+descriptor scripts remain visible but cannot be imported as inputs.
+
 ## Run with Docker Compose
 
 Build and start the production nginx container:

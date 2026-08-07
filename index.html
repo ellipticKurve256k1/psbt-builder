@@ -640,9 +640,24 @@
     }
 
     .descriptor-copy-button,
-    .descriptor-use-output-button {
+    .descriptor-use-output-button,
+    .descriptor-use-input-button {
       padding: 0.35rem 0.65rem;
       font-size: 0.78rem;
+    }
+
+    .descriptor-use-input-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .descriptor-input-support-reason {
+      flex-basis: 100%;
+      max-width: 260px;
+      color: #f08b7f;
+      font-size: 0.7rem;
+      line-height: 1.3;
+      text-align: right;
     }
 
     .descriptor-empty-state {
@@ -1395,6 +1410,82 @@
       margin: 10px 0 18px;
     }
 
+    .utxo-selection-dialog {
+      width: min(820px, calc(100vw - 24px));
+    }
+
+    .utxo-selection-address {
+      margin-bottom: 14px;
+      color: #a9a39d;
+      overflow-wrap: anywhere;
+    }
+
+    .utxo-selection-list {
+      display: grid;
+      max-height: 390px;
+      overflow-y: auto;
+      border: 1px solid #37332f;
+      border-radius: 9px;
+      background: #111315;
+    }
+
+    .utxo-selection-row {
+      display: grid;
+      grid-template-columns: auto minmax(220px, 1fr) 80px minmax(145px, auto) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      border-bottom: 1px solid #37332f;
+    }
+
+    .utxo-selection-row:last-child {
+      border-bottom: 0;
+    }
+
+    .utxo-selection-row code {
+      overflow-wrap: anywhere;
+      color: #d7e6f4;
+      font-size: 0.78rem;
+    }
+
+    .utxo-selection-vout,
+    .utxo-selection-amount {
+      color: #d6d0c9;
+      font-size: 0.82rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .utxo-status-badge {
+      padding: 0.2rem 0.45rem;
+      border: 1px solid;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .utxo-status-badge.confirmed {
+      border-color: #2f8f70;
+      color: #8fd8b9;
+    }
+
+    .utxo-status-badge.unconfirmed {
+      border-color: #a05f17;
+      color: #ffc266;
+    }
+
+    .utxo-selection-summary {
+      margin-top: 14px;
+      color: #c9d8e5;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .utxo-selection-error {
+      min-height: 1.2rem;
+      margin-top: 10px;
+      color: var(--danger);
+    }
+
     .fee-output-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(150px, 0.42fr);
@@ -1550,6 +1641,15 @@
 
       .descriptor-address-details {
         grid-column: 1 / -1;
+      }
+
+      .utxo-selection-row {
+        grid-template-columns: auto minmax(0, 1fr) auto;
+      }
+
+      .utxo-selection-vout,
+      .utxo-selection-amount {
+        grid-column: 2 / -1;
       }
     }
   </style>
@@ -1828,12 +1928,36 @@
         <p>
           <strong>Your descriptor, xpub, and private keys remain in this browser and are not sent.</strong>
         </p>
+        <p>Using a funded row’s UTXOs as inputs makes an additional Esplora request for that address’s current outpoints.</p>
         <p>Select OK to continue, or Cancel to return to the PSBT Builder without making an Esplora request.</p>
       </div>
       <div class="privacy-warning-actions">
         <button type="button" id="descriptorPrivacyCancel">Cancel</button>
         <button type="button" id="descriptorPrivacyOk" autofocus>OK</button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog
+    id="descriptorUtxoDialog"
+    class="fee-calculator-dialog utxo-selection-dialog"
+    aria-labelledby="descriptorUtxoTitle"
+  >
+    <div class="fee-calculator-shell">
+      <header class="fee-calculator-head">
+        <h2 id="descriptorUtxoTitle">Select UTXOs to Use as Inputs</h2>
+        <span class="hint">Confirmed UTXOs are selected by default.</span>
+      </header>
+      <div class="fee-calculator-body">
+        <div id="descriptorUtxoAddress" class="utxo-selection-address"></div>
+        <div id="descriptorUtxoList" class="utxo-selection-list"></div>
+        <div id="descriptorUtxoSummary" class="utxo-selection-summary">0 inputs selected</div>
+        <div id="descriptorUtxoError" class="utxo-selection-error" role="alert" aria-live="polite"></div>
+      </div>
+      <footer class="fee-calculator-actions">
+        <button type="button" id="descriptorUtxoCancel">Cancel</button>
+        <button type="button" id="descriptorUtxoApply" disabled>Add Selected Inputs</button>
+      </footer>
     </div>
   </dialog>
 

@@ -92,11 +92,43 @@ function assertPublicMultipathDescriptor(descriptor, network) {
   return normalized;
 }
 
-function deriveAddress(descriptor, network, index, change) {
+function bytesToHex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function deriveAddressDetails(descriptor, network, index, change) {
   try {
-    const address = new Output({ descriptor, network, index, change }).getAddress();
+    const output = new Output({ descriptor, network, index, change });
+    const address = output.getAddress();
     if (typeof address !== "string" || !address) throw new Error("No address");
-    return address;
+    const script = output.getScriptPubKey();
+    const isP2wpkh = script.length === 22 && script[0] === 0x00 && script[1] === 0x14;
+    const isP2tr = script.length === 34 && script[0] === 0x51 && script[1] === 0x20;
+    const expansion = output.expand();
+    const internalPubkey = output.getPayment().internalPubkey;
+    const isPlainTaproot = isP2tr && !expansion.tapTree && !expansion.tapTreeExpression;
+
+    let inputType = null;
+    let tapInternalKey = "";
+    let inputUnsupportedReason = "Only P2WPKH and plain key-path P2TR inputs are supported.";
+    if (isP2wpkh) {
+      inputType = "p2wpkh";
+      inputUnsupportedReason = "";
+    } else if (isPlainTaproot && internalPubkey?.length === 32) {
+      inputType = "p2tr";
+      tapInternalKey = bytesToHex(internalPubkey);
+      inputUnsupportedReason = "";
+    } else if (isP2tr) {
+      inputUnsupportedReason = "Taproot script-tree inputs are not supported by the PSBT Builder.";
+    }
+
+    return {
+      address,
+      scriptPubKey: bytesToHex(script),
+      inputType,
+      tapInternalKey,
+      inputUnsupportedReason,
+    };
   } catch {
     throw new Error(
       `Descriptor does not produce one address for ${change === 0 ? "receiving" : "change"} index ${index}.`
@@ -111,10 +143,14 @@ function deriveDescriptorAddressPairs({ descriptor, network, startIndex, count }
 
   return Array.from({ length: range.count }, (_, offset) => {
     const index = range.startIndex + offset;
+    const receive = deriveAddressDetails(normalized, network, index, 0);
+    const change = deriveAddressDetails(normalized, network, index, 1);
     return {
       index,
-      receiveAddress: deriveAddress(normalized, network, index, 0),
-      changeAddress: deriveAddress(normalized, network, index, 1),
+      receiveAddress: receive.address,
+      receiveInputMetadata: receive,
+      changeAddress: change.address,
+      changeInputMetadata: change,
     };
   });
 }
@@ -125,6 +161,53 @@ function getEsploraAddressApiUrl(networkValue, address) {
   const normalizedAddress = String(address ?? "").trim();
   if (!normalizedAddress) throw new Error("Address is required for balance lookup.");
   return `${apiBase}/address/${encodeURIComponent(normalizedAddress)}`;
+}
+
+function getEsploraAddressUtxoUrl(networkValue, address) {
+  return `${getEsploraAddressApiUrl(networkValue, address)}/utxo`;
+}
+
+function parseEsploraAddressUtxos(data) {
+  if (!Array.isArray(data)) throw new Error("Esplora returned an invalid UTXO response.");
+  const seen = new Set();
+  return data.map((utxo, index) => {
+    const label = `UTXO #${index + 1}`;
+    if (!utxo || typeof utxo !== "object") throw new Error(`${label} is invalid.`);
+    const txid = String(utxo.txid ?? "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(txid)) throw new Error(`${label} has an invalid txid.`);
+    if (!Number.isSafeInteger(utxo.vout) || utxo.vout < 0 || utxo.vout > 0xffffffff) {
+      throw new Error(`${label} has an invalid vout.`);
+    }
+    if (!Number.isSafeInteger(utxo.value) || utxo.value < 0) {
+      throw new Error(`${label} has an invalid value.`);
+    }
+    if (!utxo.status || typeof utxo.status.confirmed !== "boolean") {
+      throw new Error(`${label} has an invalid confirmation status.`);
+    }
+    const outpoint = `${txid}:${utxo.vout}`;
+    if (seen.has(outpoint)) throw new Error(`Esplora returned duplicate outpoint ${outpoint}.`);
+    seen.add(outpoint);
+    return {
+      txid,
+      vout: utxo.vout,
+      valueSats: BigInt(utxo.value),
+      confirmed: utxo.status.confirmed,
+      blockHeight: Number.isSafeInteger(utxo.status.block_height)
+        ? utxo.status.block_height
+        : null,
+    };
+  });
+}
+
+async function fetchEsploraAddressUtxos(address, networkValue, { signal } = {}) {
+  const response = await fetch(getEsploraAddressUtxoUrl(networkValue, address), {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Blockstream Esplora UTXO request failed (status ${response.status}).`);
+  }
+  return parseEsploraAddressUtxos(await response.json());
 }
 
 function parseEsploraStatValue(value, fieldName) {
@@ -309,6 +392,7 @@ function initDescriptorPage({
   getNetworkValue,
   networkSelect,
   onUseAsOutput,
+  onUseUtxosAsInputs,
   onCancelPrivacyWarning,
 }) {
   const descriptorInput = document.getElementById("descriptorInput");
@@ -328,6 +412,13 @@ function initDescriptorPage({
   const privacyDialog = document.getElementById("descriptorPrivacyDialog");
   const privacyOkButton = document.getElementById("descriptorPrivacyOk");
   const privacyCancelButton = document.getElementById("descriptorPrivacyCancel");
+  const utxoDialog = document.getElementById("descriptorUtxoDialog");
+  const utxoDialogAddress = document.getElementById("descriptorUtxoAddress");
+  const utxoList = document.getElementById("descriptorUtxoList");
+  const utxoSummary = document.getElementById("descriptorUtxoSummary");
+  const utxoError = document.getElementById("descriptorUtxoError");
+  const utxoCancelButton = document.getElementById("descriptorUtxoCancel");
+  const utxoApplyButton = document.getElementById("descriptorUtxoApply");
 
   if (
     !descriptorInput ||
@@ -347,6 +438,13 @@ function initDescriptorPage({
     !privacyDialog ||
     !privacyOkButton ||
     !privacyCancelButton ||
+    !utxoDialog ||
+    !utxoDialogAddress ||
+    !utxoList ||
+    !utxoSummary ||
+    !utxoError ||
+    !utxoCancelButton ||
+    !utxoApplyButton ||
     !networkSelect
   ) {
     return;
@@ -355,6 +453,11 @@ function initDescriptorPage({
   let hasDerivationRequest = false;
   let derivationRequestId = 0;
   let activeAbortController = null;
+  let utxoRequestId = 0;
+  let activeUtxoAbortController = null;
+  let activeUtxoButton = null;
+  let utxoDialogState = null;
+  const renderedInputMetadata = new Map();
 
   const setStatus = (message = "", isError = false, isWarning = false) => {
     status.textContent = message;
@@ -384,7 +487,124 @@ function initDescriptorPage({
     resultsContent.hidden = !expanded;
   };
 
-  const createAddressRow = (index, address, balanceSats, label, classification) => {
+  const restoreActiveUtxoButton = () => {
+    if (activeUtxoButton?.isConnected) {
+      activeUtxoButton.disabled = false;
+      activeUtxoButton.textContent = "Use UTXOs as Inputs";
+    }
+    activeUtxoButton = null;
+  };
+
+  const cancelUtxoLookup = () => {
+    utxoRequestId += 1;
+    activeUtxoAbortController?.abort();
+    activeUtxoAbortController = null;
+    restoreActiveUtxoButton();
+  };
+
+  const closeUtxoDialog = (returnValue = "cancel") => {
+    if (utxoDialog.open) utxoDialog.close(returnValue);
+    utxoDialogState = null;
+    utxoList.replaceChildren();
+    utxoError.textContent = "";
+  };
+
+  const updateUtxoSelectionSummary = () => {
+    if (!utxoDialogState) return;
+    const selected = Array.from(
+      utxoList.querySelectorAll(".utxo-selection-checkbox:checked"),
+      (checkbox) => utxoDialogState.utxos[Number(checkbox.dataset.index)]
+    );
+    const total = selected.reduce((sum, utxo) => sum + utxo.valueSats, 0n);
+    utxoSummary.textContent =
+      `${selected.length} input${selected.length === 1 ? "" : "s"} selected · `
+      + formatAddressBalance(total);
+    utxoApplyButton.disabled = selected.length === 0;
+    utxoError.textContent = "";
+  };
+
+  const showUtxoSelectionDialog = (inputMetadata, utxos) => {
+    utxoDialogState = { inputMetadata, utxos };
+    utxoDialogAddress.textContent = `${inputMetadata.address} · ${inputMetadata.inputType.toUpperCase()}`;
+    utxoList.replaceChildren();
+    utxoError.textContent = "";
+
+    utxos.forEach((utxo, index) => {
+      const row = document.createElement("label");
+      row.className = "utxo-selection-row";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "utxo-selection-checkbox";
+      checkbox.dataset.index = String(index);
+      checkbox.checked = utxo.confirmed;
+
+      const txid = document.createElement("code");
+      txid.textContent = utxo.txid;
+
+      const vout = document.createElement("span");
+      vout.className = "utxo-selection-vout";
+      vout.textContent = `vout ${utxo.vout}`;
+
+      const amount = document.createElement("span");
+      amount.className = "utxo-selection-amount";
+      amount.textContent = formatAddressBalance(utxo.valueSats);
+
+      const confirmation = document.createElement("span");
+      confirmation.className = `utxo-status-badge ${utxo.confirmed ? "confirmed" : "unconfirmed"}`;
+      confirmation.textContent = utxo.confirmed ? "Confirmed" : "Unconfirmed";
+
+      row.append(checkbox, txid, vout, amount, confirmation);
+      utxoList.appendChild(row);
+    });
+    updateUtxoSelectionSummary();
+    utxoDialog.showModal();
+  };
+
+  const loadAddressUtxos = async (button) => {
+    const inputMetadata = renderedInputMetadata.get(button.dataset.address);
+    if (!inputMetadata?.inputType) return;
+
+    cancelUtxoLookup();
+    const currentRequestId = ++utxoRequestId;
+    activeUtxoAbortController = new AbortController();
+    activeUtxoButton = button;
+    button.disabled = true;
+    button.textContent = "Loading UTXOs…";
+    setStatus();
+
+    try {
+      const utxos = await fetchEsploraAddressUtxos(inputMetadata.address, getNetworkValue(), {
+        signal: activeUtxoAbortController.signal,
+      });
+      if (currentRequestId !== utxoRequestId) return;
+      if (utxos.length === 0) {
+        setStatus("No current UTXOs were found for this address.", false, true);
+        return;
+      }
+      showUtxoSelectionDialog(inputMetadata, utxos);
+    } catch (error) {
+      if (currentRequestId !== utxoRequestId) return;
+      setStatus(
+        error?.name === "AbortError" ? "UTXO lookup was cancelled." : error.message,
+        true
+      );
+    } finally {
+      if (currentRequestId === utxoRequestId) {
+        activeUtxoAbortController = null;
+        restoreActiveUtxoButton();
+      }
+    }
+  };
+
+  const createAddressRow = (
+    index,
+    address,
+    balanceSats,
+    label,
+    classification,
+    inputMetadata
+  ) => {
     const row = document.createElement("div");
     row.className = "descriptor-address-row";
 
@@ -421,6 +641,31 @@ function initDescriptorPage({
     useButton.setAttribute("aria-label", `Use ${label} address at index ${index} as PSBT output`);
 
     actions.append(copyButton, useButton);
+    if (classification === "funded") {
+      const inputButton = document.createElement("button");
+      inputButton.type = "button";
+      inputButton.className = "descriptor-use-input-button";
+      inputButton.dataset.address = address;
+      inputButton.textContent = "Use UTXOs as Inputs";
+      inputButton.setAttribute(
+        "aria-label",
+        `Use funded ${label} address at index ${index} UTXOs as PSBT inputs`
+      );
+      if (!inputMetadata?.inputType) {
+        inputButton.disabled = true;
+        const reason = inputMetadata?.inputUnsupportedReason
+          || "This descriptor output is not supported as a PSBT input.";
+        inputButton.title = reason;
+        inputButton.setAttribute("aria-label", `Unavailable: ${reason}`);
+        const supportReason = document.createElement("span");
+        supportReason.className = "descriptor-input-support-reason";
+        supportReason.textContent = reason;
+        actions.append(inputButton, supportReason);
+      } else {
+        renderedInputMetadata.set(address, inputMetadata);
+        actions.append(inputButton);
+      }
+    }
     const details = document.createElement("div");
     details.className = "descriptor-address-details";
     details.append(badge, balance);
@@ -439,6 +684,7 @@ function initDescriptorPage({
   const clearResults = () => {
     receivingList.replaceChildren();
     changeList.replaceChildren();
+    renderedInputMetadata.clear();
   };
 
   const renderRows = (rows, targetUnusedCount) => {
@@ -464,7 +710,8 @@ function initDescriptorPage({
             row.receiveAddress,
             row.receiveBalanceSats,
             "receiving",
-            "funded"
+            "funded",
+            row.receiveInputMetadata
           )
         );
         receivingFundedCount += 1;
@@ -481,7 +728,8 @@ function initDescriptorPage({
             row.changeAddress,
             row.changeBalanceSats,
             "change",
-            "funded"
+            "funded",
+            row.changeInputMetadata
           )
         );
         changeFundedCount += 1;
@@ -509,6 +757,8 @@ function initDescriptorPage({
   };
 
   const derive = async () => {
+    cancelUtxoLookup();
+    closeUtxoDialog();
     hasDerivationRequest = true;
     derivationRequestId += 1;
     const currentRequestId = derivationRequestId;
@@ -573,6 +823,8 @@ function initDescriptorPage({
     event.preventDefault();
   });
   clearButton.addEventListener("click", () => {
+    cancelUtxoLookup();
+    closeUtxoDialog();
     derivationRequestId += 1;
     activeAbortController?.abort();
     activeAbortController = null;
@@ -591,6 +843,8 @@ function initDescriptorPage({
   });
   networkSelect.addEventListener("change", () => {
     if (!hasDerivationRequest) return;
+    cancelUtxoLookup();
+    closeUtxoDialog();
     derivationRequestId += 1;
     activeAbortController?.abort();
     activeAbortController = null;
@@ -601,7 +855,58 @@ function initDescriptorPage({
     setLoading(false);
     setStatus("Network changed. Click Derive Addresses and confirm the privacy warning to scan again.");
   });
+  utxoList.addEventListener("change", (event) => {
+    if (event.target.matches?.(".utxo-selection-checkbox")) updateUtxoSelectionSummary();
+  });
+  utxoCancelButton.addEventListener("click", () => closeUtxoDialog("cancel"));
+  utxoApplyButton.addEventListener("click", () => {
+    if (!utxoDialogState) return;
+    const selectedUtxos = Array.from(
+      utxoList.querySelectorAll(".utxo-selection-checkbox:checked"),
+      (checkbox) => utxoDialogState.utxos[Number(checkbox.dataset.index)]
+    );
+    try {
+      const result = onUseUtxosAsInputs?.({
+        ...utxoDialogState.inputMetadata,
+        utxos: selectedUtxos,
+      }) || { added: 0, skipped: 0 };
+      if (result.added === 0) {
+        utxoError.textContent = result.skipped > 0
+          ? "Every selected outpoint is already present in the PSBT Builder."
+          : "Select at least one UTXO.";
+        return;
+      }
+      closeUtxoDialog("apply");
+      setStatus(
+        `Added ${result.added} UTXO input${result.added === 1 ? "" : "s"} to the PSBT Builder.`
+        + (result.skipped > 0 ? ` Skipped ${result.skipped} duplicate outpoint${result.skipped === 1 ? "" : "s"}.` : "")
+      );
+    } catch (error) {
+      utxoError.textContent = error.message;
+    }
+  });
+  utxoDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeUtxoDialog("cancel");
+  });
+  utxoDialog.addEventListener("click", (event) => {
+    const bounds = utxoDialog.getBoundingClientRect();
+    const outsideDialog =
+      event.clientX < bounds.left ||
+      event.clientX > bounds.right ||
+      event.clientY < bounds.top ||
+      event.clientY > bounds.bottom;
+    if (outsideDialog) closeUtxoDialog("cancel");
+  });
+  utxoDialog.addEventListener("close", () => {
+    utxoDialogState = null;
+  });
   resultsContent.addEventListener("click", async (event) => {
+    const inputButton = event.target.closest?.(".descriptor-use-input-button");
+    if (inputButton && !inputButton.disabled) {
+      void loadAddressUtxos(inputButton);
+      return;
+    }
     const useButton = event.target.closest?.(".descriptor-use-output-button");
     if (useButton) {
       onUseAsOutput?.(useButton.dataset.address);
@@ -631,8 +936,12 @@ export {
   containsPrivateKeyMaterial,
   parseDescriptorRange,
   assertPublicMultipathDescriptor,
+  deriveAddressDetails,
   deriveDescriptorAddressPairs,
   getEsploraAddressApiUrl,
+  getEsploraAddressUtxoUrl,
+  parseEsploraAddressUtxos,
+  fetchEsploraAddressUtxos,
   calculateEsploraBalance,
   parseEsploraAddressActivity,
   classifyAddressActivity,

@@ -40,6 +40,36 @@ describe("builder rows, validation, and balance", () => {
     expect(window.currentPsbt).toBeNull();
   });
 
+  it("imports descriptor UTXOs into a blank row and preserves Taproot metadata", () => {
+    const result = app.applyDescriptorUtxosAsInputs({
+      utxos: [{ txid: "ab".repeat(32), vout: 3, valueSats: 150_000n, confirmed: true }],
+      scriptPubKey: Buffer.from(MAINNET_TAPROOT_PAYMENT.output).toString("hex"),
+      tapInternalKey: TAPROOT_INTERNAL_KEY.toString("hex"),
+    });
+
+    expect(result).toEqual({ added: 1, skipped: 0 });
+    const row = document.querySelector("[data-utxo]");
+    expect(row.querySelector(".txid-input").value).toBe("ab".repeat(32));
+    expect(row.querySelector(".vout-input").value).toBe("3");
+    expect(row.querySelector(".value-input").value).toBe("0.00150000");
+    expect(row.querySelector(".tap-internal-key").value).toBe(TAPROOT_INTERNAL_KEY.toString("hex"));
+    expect(row.querySelector(".tap-internal-key-group").style.display).toBe("");
+    expect(row.querySelector(".script-label").textContent).toContain("P2TR Address");
+
+    const secondResult = app.applyDescriptorUtxosAsInputs({
+      utxos: [
+        { txid: "ab".repeat(32), vout: 3, valueSats: 150_000n, confirmed: true },
+        { txid: "cd".repeat(32), vout: 4, valueSats: 50_000n, confirmed: true },
+      ],
+      scriptPubKey: Buffer.from(MAINNET_TAPROOT_PAYMENT.output).toString("hex"),
+      tapInternalKey: TAPROOT_INTERNAL_KEY.toString("hex"),
+    });
+    expect(secondResult).toEqual({ added: 1, skipped: 1 });
+    expect(document.querySelectorAll("[data-utxo]")).toHaveLength(2);
+    expect(document.querySelectorAll(".txid-input")[0].value).toBe("ab".repeat(32));
+    expect(document.querySelectorAll(".txid-input")[1].value).toBe("cd".repeat(32));
+  });
+
   it("adds and removes rows while refreshing totals", () => {
     document.getElementById("addInputButton").click();
     document.getElementById("addOutputButton").click();

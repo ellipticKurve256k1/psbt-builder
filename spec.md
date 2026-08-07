@@ -109,6 +109,21 @@ Builder form only when the user selects `Use as Output` on a displayed address.
   Network changes never reuse prior consent or automatically restart a scan.
 - Every displayed row shows its child index, address, classification, balance,
   Copy, and `Use as Output` actions.
+- Funded P2WPKH and plain key-path P2TR rows also provide `Use UTXOs as Inputs`.
+  Funded P2WSH/multisig, Taproot script-tree, and other unsupported rows show the
+  action disabled with an explanation.
+- The input action requests `GET /address/:address/utxo` from the selected
+  Blockstream Esplora API. The returned array is accepted only when every txid,
+  vout, satoshi value, confirmation flag, and outpoint is valid and unique.
+- A scrollable selection dialog shows every current UTXO. Confirmed UTXOs are
+  checked by default; unconfirmed UTXOs are visibly warned and unchecked.
+- Applying fills the first blank Builder input and appends additional selected
+  UTXOs. Each row receives txid, vout, BTC value, locally derived scriptPubKey,
+  default sequence, and the compatible P2TR internal key when applicable.
+- Existing populated inputs are preserved. Duplicate txid:vout outpoints are
+  skipped and reported; an all-duplicate selection leaves the dialog open.
+- UTXO lookup errors, empty responses, stale responses, dismissal, Clear, and
+  network changes never partially modify Builder inputs.
 - `Use as Output` fills the first completely blank Builder output or appends a new
   output, leaves its amount blank, validates it, and opens the PSBT Builder without
   replacing populated outputs.
@@ -146,6 +161,7 @@ Removing a row immediately updates fee/balance calculations.
 - An optional 32-byte x-only `tapInternalKey` can be supplied for external signer compatibility.
 - When supplied, the internal key must be a valid secp256k1 x-only point and its BIP86 tweak must match the input scriptPubKey.
 - Taproot script paths, Merkle roots, control blocks, and Taproot BIP32 derivations are not supported.
+- Descriptor-imported plain P2TR UTXOs receive their locally derived internal key.
 
 ### 5.4 Input Value Unit
 

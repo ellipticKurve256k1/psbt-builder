@@ -15,9 +15,12 @@ import {
   discoverDescriptorAddresses,
   fetchDescriptorAddressBalances,
   fetchEsploraAddressBalance,
+  fetchEsploraAddressUtxos,
   formatAddressBalance,
   getEsploraAddressApiUrl,
+  getEsploraAddressUtxoUrl,
   parseEsploraAddressActivity,
+  parseEsploraAddressUtxos,
   parseDescriptorRange,
 } from "../descriptor.js";
 import { change, input, loadApp } from "./helpers.js";
@@ -66,6 +69,17 @@ function mockEsploraFetch(activityForUrl = () => ({ balance: 0 })) {
   return globalThis.fetch;
 }
 
+function mockFundedAddressWithUtxos(address, utxos) {
+  globalThis.fetch = vi.fn(async (url) => ({
+    ok: true,
+    status: 200,
+    json: async () => String(url).endsWith("/utxo")
+      ? utxos
+      : esploraData(String(url).includes(address) ? 200_000 : 0),
+  }));
+  return globalThis.fetch;
+}
+
 function confirmDescriptorDerivation() {
   document.getElementById("deriveDescriptorButton").click();
   expect(document.getElementById("descriptorPrivacyDialog").open).toBe(true);
@@ -95,7 +109,11 @@ describe("descriptor derivation core", () => {
       count: 2,
     });
 
-    expect(rows).toEqual([
+    expect(rows.map(({ index, receiveAddress, changeAddress }) => ({
+      index,
+      receiveAddress,
+      changeAddress,
+    }))).toEqual([
       {
         index: 3,
         receiveAddress: expectedWpkh(rootA, 0, 3),
@@ -107,24 +125,32 @@ describe("descriptor derivation core", () => {
         changeAddress: expectedWpkh(rootA, 1, 4),
       },
     ]);
+    expect(rows[0].receiveInputMetadata).toMatchObject({
+      address: expectedWpkh(rootA, 0, 3),
+      inputType: "p2wpkh",
+      tapInternalKey: "",
+    });
+    expect(rows[0].receiveInputMetadata.scriptPubKey).toMatch(/^0014[0-9a-f]{40}$/);
   });
 
   it("supports checksummed Taproot and multisig descriptors", () => {
     const withChecksum = `${taprootDescriptor}#${checksum(taprootDescriptor)}`;
-    expect(
-      deriveDescriptorAddressPairs({
+    const taprootRow = deriveDescriptorAddressPairs({
         descriptor: withChecksum,
         network: MAINNET,
         startIndex: "1",
         count: "1",
-      })
-    ).toEqual([
-      {
-        index: 1,
-        receiveAddress: expectedTaproot(rootA, 0, 1),
-        changeAddress: expectedTaproot(rootA, 1, 1),
-      },
-    ]);
+      })[0];
+    expect(taprootRow).toMatchObject({
+      index: 1,
+      receiveAddress: expectedTaproot(rootA, 0, 1),
+      changeAddress: expectedTaproot(rootA, 1, 1),
+    });
+    expect(taprootRow.receiveInputMetadata).toMatchObject({
+      inputType: "p2tr",
+      tapInternalKey: Buffer.from(rootA.derive(0).derive(1).publicKey.slice(1)).toString("hex"),
+    });
+    expect(taprootRow.receiveInputMetadata.scriptPubKey).toMatch(/^5120[0-9a-f]{64}$/);
 
     const row = deriveDescriptorAddressPairs({
       descriptor: multisigDescriptor,
@@ -143,7 +169,9 @@ describe("descriptor derivation core", () => {
         }),
         network: MAINNET,
       }).address;
-    expect(row).toEqual({ index: 0, receiveAddress: paymentFor(0), changeAddress: paymentFor(1) });
+    expect(row).toMatchObject({ index: 0, receiveAddress: paymentFor(0), changeAddress: paymentFor(1) });
+    expect(row.receiveInputMetadata.inputType).toBeNull();
+    expect(row.receiveInputMetadata.inputUnsupportedReason).toContain("Only P2WPKH");
   });
 
   it("uses the selected network and rejects network-mismatched extended keys", () => {
@@ -273,6 +301,82 @@ describe("Esplora descriptor balances", () => {
     ]);
   });
 
+  it("builds UTXO URLs and validates Esplora outpoints", async () => {
+    expect(getEsploraAddressUtxoUrl("mainnet", "bc1qtest"))
+      .toBe("https://blockstream.info/api/address/bc1qtest/utxo");
+    expect(getEsploraAddressUtxoUrl("testnet", "tb1qtest"))
+      .toBe("https://blockstream.info/testnet/api/address/tb1qtest/utxo");
+    expect(getEsploraAddressUtxoUrl("signet", "tb1qtest"))
+      .toBe("https://blockstream.info/signet/api/address/tb1qtest/utxo");
+
+    const payload = [
+      {
+        txid: "AA".repeat(32),
+        vout: 2,
+        value: 125_000,
+        status: { confirmed: true, block_height: 800_000 },
+      },
+      {
+        txid: "bb".repeat(32),
+        vout: 0,
+        value: 75_000,
+        status: { confirmed: false },
+      },
+    ];
+    expect(parseEsploraAddressUtxos(payload)).toEqual([
+      {
+        txid: "aa".repeat(32),
+        vout: 2,
+        valueSats: 125_000n,
+        confirmed: true,
+        blockHeight: 800_000,
+      },
+      {
+        txid: "bb".repeat(32),
+        vout: 0,
+        valueSats: 75_000n,
+        confirmed: false,
+        blockHeight: null,
+      },
+    ]);
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => payload,
+    });
+    await expect(fetchEsploraAddressUtxos("bc1qtest", "mainnet"))
+      .resolves.toHaveLength(2);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "https://blockstream.info/api/address/bc1qtest/utxo",
+      expect.objectContaining({ headers: { Accept: "application/json" } })
+    );
+  });
+
+  it("rejects malformed and failed UTXO responses", async () => {
+    expect(() => parseEsploraAddressUtxos({})).toThrow("invalid UTXO response");
+    expect(() => parseEsploraAddressUtxos([
+      { txid: "bad", vout: 0, value: 1, status: { confirmed: true } },
+    ])).toThrow("invalid txid");
+    expect(() => parseEsploraAddressUtxos([
+      { txid: "aa".repeat(32), vout: -1, value: 1, status: { confirmed: true } },
+    ])).toThrow("invalid vout");
+    expect(() => parseEsploraAddressUtxos([
+      { txid: "aa".repeat(32), vout: 0, value: -1, status: { confirmed: true } },
+    ])).toThrow("invalid value");
+    expect(() => parseEsploraAddressUtxos([
+      { txid: "aa".repeat(32), vout: 0, value: 1, status: {} },
+    ])).toThrow("confirmation status");
+    expect(() => parseEsploraAddressUtxos([
+      { txid: "aa".repeat(32), vout: 0, value: 1, status: { confirmed: true } },
+      { txid: "aa".repeat(32), vout: 0, value: 1, status: { confirmed: true } },
+    ])).toThrow("duplicate outpoint");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    await expect(fetchEsploraAddressUtxos("bc1qtest", "mainnet"))
+      .rejects.toThrow("status 503");
+  });
+
   it("scans beyond used addresses until each branch has the requested unused count", async () => {
     const firstReceive = expectedWpkh(rootA, 0, 0);
     const secondChange = expectedWpkh(rootA, 1, 1);
@@ -343,6 +447,8 @@ describe("descriptor address page", () => {
   beforeEach(() => {
     const privacyDialog = document.getElementById("descriptorPrivacyDialog");
     if (privacyDialog.open) privacyDialog.close("test-reset");
+    const utxoDialog = document.getElementById("descriptorUtxoDialog");
+    if (utxoDialog.open) utxoDialog.close("test-reset");
     document.getElementById("clearDescriptorButton").click();
     change(document.getElementById("network"), "mainnet");
     navigator.clipboard.writeText.mockResolvedValue(undefined);
@@ -473,6 +579,163 @@ describe("descriptor address page", () => {
     expect(document.querySelectorAll("#changeAddressList .descriptor-address-row")).toHaveLength(2);
     expect(document.querySelectorAll("#changeAddressList .descriptor-address-badge.unused"))
       .toHaveLength(2);
+  });
+
+  it("selects confirmed and opt-in unconfirmed UTXOs and imports them as Builder inputs", async () => {
+    const address = expectedWpkh(rootA, 0, 0);
+    const utxos = [
+      {
+        txid: "aa".repeat(32),
+        vout: 1,
+        value: 125_000,
+        status: { confirmed: true, block_height: 800_000 },
+      },
+      {
+        txid: "bb".repeat(32),
+        vout: 2,
+        value: 75_000,
+        status: { confirmed: false },
+      },
+    ];
+    const fetchSpy = mockFundedAddressWithUtxos(address, utxos);
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "1");
+    confirmDescriptorDerivation();
+    await vi.waitFor(() =>
+      expect(document.querySelector("#receivingAddressList .descriptor-use-input-button"))
+        .not.toBeNull()
+    );
+
+    const inputButton = document.querySelector("#receivingAddressList .descriptor-use-input-button");
+    expect(inputButton.disabled).toBe(false);
+    inputButton.click();
+    await vi.waitFor(() => expect(document.getElementById("descriptorUtxoDialog").open).toBe(true));
+    expect(fetchSpy.mock.calls.at(-1)[0]).toBe(
+      `https://blockstream.info/api/address/${address}/utxo`
+    );
+
+    const checkboxes = document.querySelectorAll(".utxo-selection-checkbox");
+    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes[0].checked).toBe(true);
+    expect(checkboxes[1].checked).toBe(false);
+    expect(document.querySelectorAll(".utxo-status-badge.confirmed")).toHaveLength(1);
+    expect(document.querySelectorAll(".utxo-status-badge.unconfirmed")).toHaveLength(1);
+    expect(document.getElementById("descriptorUtxoSummary").textContent)
+      .toContain("1 input selected · 0.00125000 BTC");
+
+    checkboxes[0].checked = false;
+    change(checkboxes[0]);
+    expect(document.getElementById("descriptorUtxoApply").disabled).toBe(true);
+    checkboxes[0].checked = true;
+    change(checkboxes[0]);
+    checkboxes[1].checked = true;
+    change(checkboxes[1]);
+    expect(document.getElementById("descriptorUtxoSummary").textContent)
+      .toContain("2 inputs selected · 0.00200000 BTC");
+    document.getElementById("descriptorUtxoApply").click();
+
+    const inputRows = document.querySelectorAll("[data-utxo]");
+    expect(inputRows).toHaveLength(2);
+    expect(inputRows[0].querySelector(".txid-input").value).toBe("aa".repeat(32));
+    expect(inputRows[0].querySelector(".vout-input").value).toBe("1");
+    expect(inputRows[0].querySelector(".value-input").value).toBe("0.00125000");
+    expect(inputRows[0].querySelector(".script-input").value).toMatch(/^0014[0-9a-f]{40}$/);
+    expect(inputRows[1].querySelector(".txid-input").value).toBe("bb".repeat(32));
+    expect(document.getElementById("builderPage").classList.contains("hidden")).toBe(false);
+
+    document.getElementById("openDescriptorPage").click();
+    inputButton.click();
+    await vi.waitFor(() => expect(document.getElementById("descriptorUtxoDialog").open).toBe(true));
+    const duplicateCheckboxes = document.querySelectorAll(".utxo-selection-checkbox");
+    duplicateCheckboxes[1].checked = true;
+    change(duplicateCheckboxes[1]);
+    document.getElementById("descriptorUtxoApply").click();
+    expect(document.getElementById("descriptorUtxoError").textContent).toContain(
+      "already present"
+    );
+    expect(document.getElementById("descriptorUtxoDialog").open).toBe(true);
+    const utxoDialog = document.getElementById("descriptorUtxoDialog");
+    const cancelEvent = new Event("cancel", { cancelable: true });
+    utxoDialog.dispatchEvent(cancelEvent);
+    expect(cancelEvent.defaultPrevented).toBe(true);
+    expect(utxoDialog.open).toBe(false);
+
+    inputButton.click();
+    await vi.waitFor(() => expect(utxoDialog.open).toBe(true));
+    vi.spyOn(utxoDialog, "getBoundingClientRect").mockReturnValue({
+      left: 10,
+      right: 100,
+      top: 10,
+      bottom: 100,
+    });
+    utxoDialog.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 0, clientY: 0 }));
+    expect(utxoDialog.open).toBe(false);
+    document.getElementById("clearButton").click();
+  });
+
+  it("disables UTXO input import for funded descriptor scripts the Builder cannot spend", async () => {
+    const fundedAddress = deriveDescriptorAddressPairs({
+      descriptor: multisigDescriptor,
+      network: MAINNET,
+      startIndex: 0,
+      count: 1,
+    })[0].receiveAddress;
+    mockEsploraFetch((url) => url.includes(fundedAddress) ? { balance: 50_000 } : { balance: 0 });
+    input(document.getElementById("descriptorInput"), multisigDescriptor);
+    input(document.getElementById("descriptorCount"), "1");
+    confirmDescriptorDerivation();
+
+    await vi.waitFor(() =>
+      expect(document.querySelector("#receivingAddressList .descriptor-use-input-button"))
+        .not.toBeNull()
+    );
+    const button = document.querySelector("#receivingAddressList .descriptor-use-input-button");
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain("Only P2WPKH");
+    expect(document.querySelector("#receivingAddressList .descriptor-input-support-reason").textContent)
+      .toContain("Only P2WPKH");
+  });
+
+  it("handles empty, failed, and cancelled UTXO lookups without changing Builder inputs", async () => {
+    const address = expectedWpkh(rootA, 0, 0);
+    mockFundedAddressWithUtxos(address, []);
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "1");
+    confirmDescriptorDerivation();
+    await vi.waitFor(() =>
+      expect(document.querySelector("#receivingAddressList .descriptor-use-input-button"))
+        .not.toBeNull()
+    );
+    const button = document.querySelector("#receivingAddressList .descriptor-use-input-button");
+    button.click();
+    await vi.waitFor(() =>
+      expect(document.getElementById("descriptorStatus").textContent).toContain("No current UTXOs")
+    );
+    expect(document.querySelectorAll("[data-utxo]")).toHaveLength(1);
+    expect(document.querySelector(".txid-input").value).toBe("");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    button.click();
+    await vi.waitFor(() =>
+      expect(document.getElementById("descriptorStatus").textContent).toContain("status 503")
+    );
+    expect(document.querySelector(".txid-input").value).toBe("");
+
+    let requestSignal;
+    globalThis.fetch = vi.fn((_, options) => {
+      requestSignal = options.signal;
+      return new Promise((resolve, reject) => {
+        options.signal.addEventListener("abort", () =>
+          reject(new DOMException("Aborted", "AbortError"))
+        );
+      });
+    });
+    button.click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    change(document.getElementById("network"), "testnet");
+    expect(requestSignal.aborted).toBe(true);
+    expect(document.getElementById("descriptorUtxoDialog").open).toBe(false);
+    expect(document.querySelector(".txid-input").value).toBe("");
   });
 
   it("uses funded and unused addresses as Builder outputs without replacing populated rows", async () => {
