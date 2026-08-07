@@ -420,6 +420,30 @@ function addOutput(_, address = "", value = "") {
   updateFeeCalc();
 }
 
+function applyAddressAsOutput(address) {
+  const normalizedAddress = String(address ?? "").trim();
+  if (!validateBitcoinAddress(normalizedAddress, getSelectedNetwork())) {
+    throw new Error("Cannot use an invalid address as a PSBT output.");
+  }
+
+  const outputRows = Array.from(document.querySelectorAll("[data-output]"));
+  let targetRow = outputRows.find((row) => {
+    const inputs = row.querySelectorAll("input");
+    return inputs[0].value.trim() === "" && inputs[1].value.trim() === "";
+  });
+
+  if (!targetRow) {
+    addOutput();
+    targetRow = document.querySelector("[data-output]:last-child");
+  }
+
+  const addressInput = targetRow.querySelector(".output-address");
+  addressInput.value = normalizedAddress;
+  addressInput.dispatchEvent(new Event("input", { bubbles: true }));
+  document.getElementById("openBuilderPage").click();
+  addressInput.focus();
+}
+
 function refreshAllScriptLabels() {
   document
     .querySelectorAll(".script-input")
@@ -2309,7 +2333,9 @@ feeCalculatorDialog.addEventListener("close", () => {
 initPageMenu();
 initDescriptorPage({
   getNetwork: getSelectedNetwork,
+  getNetworkValue: () => document.getElementById("network").value,
   networkSelect: document.getElementById("network"),
+  onUseAsOutput: applyAddressAsOutput,
 });
 addInput();
 addOutput();
@@ -2317,6 +2343,7 @@ addOutput();
 export {
   NETWORK_CONFIG,
   getNetworkConfig,
+  applyAddressAsOutput,
   validateBitcoinAddress,
   hexToBytes,
   isP2wpkhScript,

@@ -12,6 +12,12 @@ const { Output, expand } = DescriptorsFactory(createBitcoinjsLib(ecc));
 
 const MAX_UNHARDENED_INDEX = 0x7fffffff;
 const MAX_DERIVATION_COUNT = 100;
+const ESPLORA_REQUEST_CONCURRENCY = 4;
+const ESPLORA_API_BASES = Object.freeze({
+  mainnet: "https://blockstream.info/api",
+  testnet: "https://blockstream.info/testnet/api",
+  signet: "https://blockstream.info/signet/api",
+});
 const PRIVATE_EXTENDED_KEY_PATTERN = /\b(?:[xt]prv|[yzuvYZUV]prv)[1-9A-HJ-NP-Za-km-z]+\b/;
 const BASE58_TOKEN_PATTERN = /[1-9A-HJ-NP-Za-km-z]{51,52}/g;
 
@@ -111,7 +117,97 @@ function deriveDescriptorAddressPairs({ descriptor, network, startIndex, count }
   });
 }
 
-function initDescriptorPage({ getNetwork, networkSelect }) {
+function getEsploraAddressApiUrl(networkValue, address) {
+  const apiBase = ESPLORA_API_BASES[networkValue];
+  if (!apiBase) throw new Error(`Unsupported network: ${networkValue}`);
+  const normalizedAddress = String(address ?? "").trim();
+  if (!normalizedAddress) throw new Error("Address is required for balance lookup.");
+  return `${apiBase}/address/${encodeURIComponent(normalizedAddress)}`;
+}
+
+function parseEsploraStatValue(value, fieldName) {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Esplora returned an invalid ${fieldName}.`);
+  }
+  return BigInt(value);
+}
+
+function calculateEsploraBalance(data) {
+  if (!data || typeof data !== "object") {
+    throw new Error("Esplora returned an invalid address response.");
+  }
+
+  const readStats = (stats, label) => {
+    if (!stats || typeof stats !== "object") {
+      throw new Error(`Esplora response is missing ${label}_stats.`);
+    }
+    const funded = parseEsploraStatValue(stats.funded_txo_sum, `${label} funded total`);
+    const spent = parseEsploraStatValue(stats.spent_txo_sum, `${label} spent total`);
+    return funded - spent;
+  };
+
+  return readStats(data.chain_stats, "chain") + readStats(data.mempool_stats, "mempool");
+}
+
+async function fetchEsploraAddressBalance(address, networkValue, { signal } = {}) {
+  const response = await fetch(getEsploraAddressApiUrl(networkValue, address), {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Blockstream Esplora request failed (status ${response.status}).`);
+  }
+  return calculateEsploraBalance(await response.json());
+}
+
+async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  let firstError;
+
+  const worker = async () => {
+    while (nextIndex < items.length && !firstError) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = await mapper(items[index], index);
+      } catch (error) {
+        firstError = error;
+      }
+    }
+  };
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  if (firstError) throw firstError;
+  return results;
+}
+
+async function fetchDescriptorAddressBalances(
+  rows,
+  networkValue,
+  { signal, concurrency = ESPLORA_REQUEST_CONCURRENCY } = {}
+) {
+  const addresses = rows.flatMap((row) => [row.receiveAddress, row.changeAddress]);
+  const balances = await mapWithConcurrency(addresses, concurrency, (address) =>
+    fetchEsploraAddressBalance(address, networkValue, { signal })
+  );
+
+  return rows.map((row, index) => ({
+    ...row,
+    receiveBalanceSats: balances[index * 2],
+    changeBalanceSats: balances[index * 2 + 1],
+  }));
+}
+
+function formatAddressBalance(sats) {
+  const value = BigInt(sats);
+  const whole = value / 100_000_000n;
+  const fraction = (value % 100_000_000n).toString().padStart(8, "0");
+  return `${whole}.${fraction} BTC (${value.toLocaleString("en-US")} sats)`;
+}
+
+function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseAsOutput }) {
   const descriptorInput = document.getElementById("descriptorInput");
   const startInput = document.getElementById("descriptorStartIndex");
   const countInput = document.getElementById("descriptorCount");
@@ -147,6 +243,7 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
 
   let hasDerivationRequest = false;
   let derivationRequestId = 0;
+  let activeAbortController = null;
 
   const setStatus = (message = "", isError = false) => {
     status.textContent = message;
@@ -174,7 +271,7 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     resultsContent.hidden = !expanded;
   };
 
-  const createAddressRow = (index, address, label) => {
+  const createAddressRow = (index, address, balanceSats, label) => {
     const row = document.createElement("div");
     row.className = "descriptor-address-row";
 
@@ -185,6 +282,13 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     const value = document.createElement("code");
     value.textContent = address;
 
+    const balance = document.createElement("span");
+    balance.className = "descriptor-address-balance";
+    balance.textContent = formatAddressBalance(balanceSats);
+
+    const actions = document.createElement("div");
+    actions.className = "descriptor-address-actions";
+
     const copyButton = document.createElement("button");
     copyButton.type = "button";
     copyButton.className = "descriptor-copy-button";
@@ -192,8 +296,23 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     copyButton.textContent = "Copy";
     copyButton.setAttribute("aria-label", `Copy ${label} address at index ${index}`);
 
-    row.append(indexLabel, value, copyButton);
+    const useButton = document.createElement("button");
+    useButton.type = "button";
+    useButton.className = "descriptor-use-output-button";
+    useButton.dataset.address = address;
+    useButton.textContent = "Use as Output";
+    useButton.setAttribute("aria-label", `Use ${label} address at index ${index} as PSBT output`);
+
+    actions.append(copyButton, useButton);
+    row.append(indexLabel, value, balance, actions);
     return row;
+  };
+
+  const createEmptyState = (label) => {
+    const empty = document.createElement("div");
+    empty.className = "descriptor-empty-state";
+    empty.textContent = `No ${label} addresses with available balance were found in this range.`;
+    return empty;
   };
 
   const clearResults = () => {
@@ -203,38 +322,65 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
 
   const renderRows = (rows) => {
     clearResults();
+    let receivingCount = 0;
+    let changeCount = 0;
     rows.forEach((row) => {
-      receivingList.appendChild(createAddressRow(row.index, row.receiveAddress, "receiving"));
-      changeList.appendChild(createAddressRow(row.index, row.changeAddress, "change"));
+      if (row.receiveBalanceSats > 0n) {
+        receivingList.appendChild(
+          createAddressRow(row.index, row.receiveAddress, row.receiveBalanceSats, "receiving")
+        );
+        receivingCount += 1;
+      }
+      if (row.changeBalanceSats > 0n) {
+        changeList.appendChild(
+          createAddressRow(row.index, row.changeAddress, row.changeBalanceSats, "change")
+        );
+        changeCount += 1;
+      }
     });
+    if (receivingCount === 0) receivingList.appendChild(createEmptyState("receiving"));
+    if (changeCount === 0) changeList.appendChild(createEmptyState("change"));
     results.hidden = false;
     setResultsExpanded(true);
+    return { receivingCount, changeCount };
   };
 
   const derive = async () => {
     hasDerivationRequest = true;
     derivationRequestId += 1;
     const currentRequestId = derivationRequestId;
+    activeAbortController?.abort();
+    activeAbortController = new AbortController();
     setStatus();
+    clearResults();
+    results.hidden = true;
     setLoading(true);
     await waitForBrowserPaint();
     if (currentRequestId !== derivationRequestId) return;
 
     try {
-      const rows = deriveDescriptorAddressPairs({
+      const derivedRows = deriveDescriptorAddressPairs({
         descriptor: descriptorInput.value,
         network: getNetwork(),
         startIndex: startInput.value,
         count: countInput.value,
       });
-      renderRows(rows);
+      const rows = await fetchDescriptorAddressBalances(derivedRows, getNetworkValue(), {
+        signal: activeAbortController.signal,
+      });
+      if (currentRequestId !== derivationRequestId) return;
+      const { receivingCount, changeCount } = renderRows(rows);
       setStatus(
-        `Derived ${rows.length} receiving and ${rows.length} change addresses locally in your browser.`
+        `Derived ${rows.length} address pairs locally. Blockstream found ${receivingCount} receiving and ${changeCount} change addresses with available balance.`
       );
     } catch (error) {
+      if (currentRequestId !== derivationRequestId) return;
       clearResults();
       results.hidden = true;
-      setStatus(error.message, true);
+      setStatus(
+        error?.name === "AbortError" ? "Balance lookup was cancelled." : error.message,
+        true
+      );
     } finally {
       if (currentRequestId === derivationRequestId) setLoading(false);
     }
@@ -245,6 +391,8 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
   });
   clearButton.addEventListener("click", () => {
     derivationRequestId += 1;
+    activeAbortController?.abort();
+    activeAbortController = null;
     descriptorInput.value = "";
     startInput.value = "0";
     countInput.value = "20";
@@ -262,6 +410,11 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
     if (hasDerivationRequest) void derive();
   });
   resultsContent.addEventListener("click", async (event) => {
+    const useButton = event.target.closest?.(".descriptor-use-output-button");
+    if (useButton) {
+      onUseAsOutput?.(useButton.dataset.address);
+      return;
+    }
     const button = event.target.closest?.(".descriptor-copy-button");
     if (!button) return;
     try {
@@ -279,9 +432,17 @@ function initDescriptorPage({ getNetwork, networkSelect }) {
 export {
   MAX_UNHARDENED_INDEX,
   MAX_DERIVATION_COUNT,
+  ESPLORA_REQUEST_CONCURRENCY,
+  ESPLORA_API_BASES,
   containsPrivateKeyMaterial,
   parseDescriptorRange,
   assertPublicMultipathDescriptor,
   deriveDescriptorAddressPairs,
+  getEsploraAddressApiUrl,
+  calculateEsploraBalance,
+  fetchEsploraAddressBalance,
+  mapWithConcurrency,
+  fetchDescriptorAddressBalances,
+  formatAddressBalance,
   initDescriptorPage,
 };

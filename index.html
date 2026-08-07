@@ -568,7 +568,7 @@
 
     .descriptor-address-row {
       display: grid;
-      grid-template-columns: 58px minmax(0, 1fr) auto;
+      grid-template-columns: 58px minmax(180px, 1fr) minmax(180px, auto) auto;
       align-items: center;
       gap: 0.7rem;
       padding: 0.68rem 0.8rem;
@@ -590,9 +590,30 @@
       color: #d7e6f4;
     }
 
-    .descriptor-copy-button {
+    .descriptor-address-balance {
+      color: #8fd8b9;
+      font-size: 0.8rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .descriptor-address-actions {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .descriptor-copy-button,
+    .descriptor-use-output-button {
       padding: 0.35rem 0.65rem;
       font-size: 0.78rem;
+    }
+
+    .descriptor-empty-state {
+      padding: 1rem 0.8rem;
+      color: #8da9c2;
+      font-size: 0.85rem;
     }
 
     #rawTxHexInput {
@@ -1429,6 +1450,10 @@
       .descriptor-address-index {
         grid-column: 1 / -1;
       }
+
+      .descriptor-address-balance {
+        grid-column: 1 / -1;
+      }
     }
   </style>
   <script type="module" src="/main.js"></script>
@@ -1620,7 +1645,7 @@
           <h2>Descriptor Address Derivation</h2>
         </div>
         <div class="privacy-notice" role="note">
-          <strong>Browser-only:</strong> descriptor validation and every receiving/change address derivation happen locally in this browser. No descriptor or derived address is sent to an external service.
+          <strong>Browser-only derivation:</strong> descriptor validation and every receiving/change address derivation happen locally in this browser. Your descriptor and keys never leave the browser. Only the resulting addresses are sent to Blockstream Esplora to fetch balances.
         </div>
         <div>
           <label for="descriptorInput">Public Multipath Descriptor</label>
@@ -1650,7 +1675,7 @@
           </div>
           <div id="descriptorLoading" class="descriptor-loading" role="status" aria-live="polite" hidden>
             <span class="descriptor-loading-spinner" aria-hidden="true"></span>
-            <span>Deriving addresses locally in your browser…</span>
+            <span>Deriving locally and fetching address balances…</span>
           </div>
           <div id="descriptorStatus" aria-live="polite"></div>
         </div>

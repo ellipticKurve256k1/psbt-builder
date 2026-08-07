@@ -11,7 +11,7 @@ It is designed for a manual workflow where the user enters UTXOs and outputs, op
 - Runtime: Browser-based single-page app.
 - Data processing: Client-side only.
 - Primary artifact: Unsigned PSBT (`toBase64()` output and binary download).
-- Descriptor artifact: Locally derived receiving/change address pairs from a public multipath descriptor.
+- Descriptor artifact: Locally derived receiving/change addresses with balances fetched from Blockstream Esplora.
 - Supported input script types:
   - Native P2WPKH (`OP_0 PUSH20`).
   - Native P2TR (`OP_1 PUSH32`) using BIP86 key-path spending.
@@ -35,20 +35,26 @@ When network changes:
 - All existing output address fields are revalidated.
 - Change address validation state is re-evaluated.
 - The raw transaction summary is re-rendered for the selected network.
-- Existing descriptor results are re-derived locally or replaced with a network validation error.
+- Existing descriptor results are re-derived locally and their balances are
+  fetched for the new network, or the results are replaced with an error.
 
 ## 4. Descriptor Address Derivation
 
-The `Descriptor Addresses` menu opens a dedicated in-app page. It does not alter
-the PSBT Builder form.
+The `Descriptor Addresses` menu opens a dedicated in-app page. It alters the PSBT
+Builder form only when the user selects `Use as Output` on a funded address.
 
 ### 4.1 Browser-Only Privacy Guarantee
 
 - Descriptor parsing, checksum validation, BIP32 child derivation, script creation,
   and address encoding run entirely in browser JavaScript bundled with the app.
-- The page makes no HTTP, WebSocket, beacon, or backend request during derivation.
+- Derivation itself makes no HTTP, WebSocket, beacon, or backend request. After
+  derivation, each resulting address is sent to the selected network's public
+  Blockstream Esplora API for a balance lookup.
 - Descriptor text and derived addresses are not written to cookies, browser
   storage, application logs, or the page URL.
+- Descriptor text, extended public keys, and key-origin information are never
+  included in external requests. Only individual derived addresses are sent to
+  Esplora.
 - Extended private keys and WIF private keys are rejected. Only public watch-only
   descriptors are accepted.
 
@@ -68,13 +74,26 @@ the PSBT Builder form.
 - Start index defaults to `0` and must be within `0..2147483647`.
 - Count defaults to `20` and must be within `1..100`.
 - The complete requested range must remain within the unhardened BIP32 limit.
-- While deriving, the page shows a local-loading spinner, marks the panel busy,
-  and disables the derive button until the result or validation error is ready.
+- While deriving and fetching balances, the page shows a loading spinner, marks
+  the panel busy, and disables the derive button until the result or error is ready.
 - Results open in an expandable/collapsible panel. Receiving addresses appear in
   the upper component and change addresses in the lower component.
 - Each address component has its own bounded vertical scroll area, so long ranges
   do not make the surrounding page scroll with the list.
-- Every row shows its child index, address, and an individual copy button.
+- The requested range is checked exactly; the app does not scan beyond it to find
+  additional funded addresses.
+- Available balance is calculated in satoshis as confirmed funded minus confirmed
+  spent plus mempool funded minus mempool spent.
+- Only addresses with an available balance greater than zero are displayed. An
+  empty-state message is shown independently for a branch with no funded addresses.
+- Balance requests use at most four concurrent HTTP requests. A failed or malformed
+  lookup fails the complete scan rather than treating an unknown address as empty.
+- Clear, network changes, and newer derivations cancel or invalidate stale requests.
+- Every funded row shows its child index, address, BTC/satoshi balance, Copy, and
+  `Use as Output` actions.
+- `Use as Output` fills the first completely blank Builder output or appends a new
+  output, leaves its amount blank, validates it, and opens the PSBT Builder without
+  replacing populated outputs.
 - `Clear` removes the descriptor and results and restores the default range.
 
 ## 5. Inputs (UTXOs) Section

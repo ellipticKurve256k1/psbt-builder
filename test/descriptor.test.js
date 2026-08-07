@@ -8,8 +8,13 @@ import {
   MAX_DERIVATION_COUNT,
   MAX_UNHARDENED_INDEX,
   assertPublicMultipathDescriptor,
+  calculateEsploraBalance,
   containsPrivateKeyMaterial,
   deriveDescriptorAddressPairs,
+  fetchDescriptorAddressBalances,
+  fetchEsploraAddressBalance,
+  formatAddressBalance,
+  getEsploraAddressApiUrl,
   parseDescriptorRange,
 } from "../descriptor.js";
 import { change, input, loadApp } from "./helpers.js";
@@ -25,6 +30,34 @@ const xpubB = rootB.neutered().toBase58();
 const wpkhDescriptor = `wpkh(${xpubA}/<0;1>/*)`;
 const taprootDescriptor = `tr(${xpubA}/<0;1>/*)`;
 const multisigDescriptor = `wsh(sortedmulti(2,${xpubA}/<0;1>/*,${xpubB}/<0;1>/*))`;
+
+function esploraData(balance = 1000) {
+  return {
+    chain_stats: {
+      tx_count: balance > 0 ? 1 : 0,
+      funded_txo_count: balance > 0 ? 1 : 0,
+      funded_txo_sum: Math.max(0, balance),
+      spent_txo_count: 0,
+      spent_txo_sum: 0,
+    },
+    mempool_stats: {
+      tx_count: 0,
+      funded_txo_count: 0,
+      funded_txo_sum: 0,
+      spent_txo_count: 0,
+      spent_txo_sum: 0,
+    },
+  };
+}
+
+function mockEsploraFetch(balanceForUrl = () => 1000) {
+  globalThis.fetch = vi.fn(async (url) => ({
+    ok: true,
+    status: 200,
+    json: async () => esploraData(balanceForUrl(String(url))),
+  }));
+  return globalThis.fetch;
+}
 
 function expectedWpkh(root, branch, index, network = MAINNET) {
   return bitcoin.payments.p2wpkh({
@@ -173,6 +206,54 @@ describe("descriptor derivation core", () => {
   });
 });
 
+describe("Esplora descriptor balances", () => {
+  it("builds selected-network URLs and calculates confirmed plus mempool balance", () => {
+    expect(getEsploraAddressApiUrl("mainnet", "bc1qtest"))
+      .toBe("https://blockstream.info/api/address/bc1qtest");
+    expect(getEsploraAddressApiUrl("testnet", "tb1qtest"))
+      .toBe("https://blockstream.info/testnet/api/address/tb1qtest");
+    expect(getEsploraAddressApiUrl("signet", "tb1qtest"))
+      .toBe("https://blockstream.info/signet/api/address/tb1qtest");
+    expect(() => getEsploraAddressApiUrl("unknown", "bc1qtest")).toThrow("Unsupported network");
+
+    expect(calculateEsploraBalance({
+      chain_stats: { funded_txo_sum: 10_000, spent_txo_sum: 2_000 },
+      mempool_stats: { funded_txo_sum: 500, spent_txo_sum: 250 },
+    })).toBe(8250n);
+    expect(formatAddressBalance(8250n)).toBe("0.00008250 BTC (8,250 sats)");
+  });
+
+  it("fetches every address in the exact range and preserves pair ordering", async () => {
+    const rows = deriveDescriptorAddressPairs({
+      descriptor: wpkhDescriptor,
+      network: MAINNET,
+      startIndex: 4,
+      count: 2,
+    });
+    const fetchSpy = mockEsploraFetch((url) => url.includes(rows[0].receiveAddress) ? 5000 : 0);
+    const balanced = await fetchDescriptorAddressBalances(rows, "mainnet", { concurrency: 2 });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    expect(balanced).toEqual([
+      { ...rows[0], receiveBalanceSats: 5000n, changeBalanceSats: 0n },
+      { ...rows[1], receiveBalanceSats: 0n, changeBalanceSats: 0n },
+    ]);
+  });
+
+  it("rejects failed and malformed API responses", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 429 });
+    await expect(fetchEsploraAddressBalance("bc1qtest", "mainnet"))
+      .rejects.toThrow("status 429");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ chain_stats: {}, mempool_stats: {} }),
+    });
+    await expect(fetchEsploraAddressBalance("bc1qtest", "mainnet"))
+      .rejects.toThrow("invalid chain funded total");
+  });
+});
+
 describe("descriptor address page", () => {
   beforeAll(async () => {
     await loadApp();
@@ -182,6 +263,7 @@ describe("descriptor address page", () => {
     document.getElementById("clearDescriptorButton").click();
     change(document.getElementById("network"), "mainnet");
     navigator.clipboard.writeText.mockResolvedValue(undefined);
+    mockEsploraFetch();
   });
 
   it("navigates to a separate descriptor page", () => {
@@ -212,7 +294,8 @@ describe("descriptor address page", () => {
     expect(changeRows).toHaveLength(2);
     expect(receivingRows[0].textContent).toContain(expectedWpkh(rootA, 0, 2));
     expect(changeRows[0].textContent).toContain(expectedWpkh(rootA, 1, 2));
-    expect(document.getElementById("descriptorStatus").textContent).toContain("locally in your browser");
+    expect(receivingRows[0].textContent).toContain("0.00001000 BTC (1,000 sats)");
+    expect(document.getElementById("descriptorStatus").textContent).toContain("Derived 2 address pairs locally");
     expect(document.getElementById("deriveDescriptorButton").disabled).toBe(false);
     expect(document.getElementById("descriptorDerivationPanel").getAttribute("aria-busy")).toBe(
       "false"
@@ -228,6 +311,55 @@ describe("descriptor address page", () => {
     expect(document.getElementById("descriptorStartIndex").value).toBe("0");
     expect(document.getElementById("descriptorCount").value).toBe("20");
     expect(document.getElementById("descriptorResults").hidden).toBe(true);
+  });
+
+  it("shows only positive balances and reports empty branches", async () => {
+    const fundedReceive = expectedWpkh(rootA, 0, 1);
+    mockEsploraFetch((url) => url.includes(fundedReceive) ? 25_000 : 0);
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "2");
+    document.getElementById("deriveDescriptorButton").click();
+
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1)
+    );
+    expect(document.getElementById("receivingAddressList").textContent).toContain(fundedReceive);
+    expect(document.getElementById("receivingAddressList").textContent)
+      .not.toContain(expectedWpkh(rootA, 0, 0));
+    expect(document.querySelectorAll("#changeAddressList .descriptor-address-row")).toHaveLength(0);
+    expect(document.getElementById("changeAddressList").textContent).toContain(
+      "No change addresses with available balance"
+    );
+  });
+
+  it("uses a funded address as a blank Builder output without replacing populated rows", async () => {
+    const address = expectedWpkh(rootA, 0, 0);
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "1");
+    document.getElementById("openDescriptorPage").click();
+    document.getElementById("deriveDescriptorButton").click();
+    await vi.waitFor(() => expect(document.querySelector(".descriptor-use-output-button")).not.toBeNull());
+
+    document.querySelector(".descriptor-use-output-button").click();
+    const firstOutput = document.querySelector("[data-output]");
+    expect(firstOutput.querySelector(".output-address").value).toBe(address);
+    expect(firstOutput.querySelectorAll("input")[1].value).toBe("");
+    expect(firstOutput.querySelector(".output-address").style.borderColor).toBe("rgb(247, 147, 26)");
+    expect(document.getElementById("builderPage").classList.contains("hidden")).toBe(false);
+
+    input(firstOutput.querySelectorAll("input")[1], "0.1");
+    document.getElementById("openDescriptorPage").click();
+    document.querySelector(".descriptor-use-output-button").click();
+    const outputs = document.querySelectorAll("[data-output]");
+    expect(outputs).toHaveLength(2);
+    expect(outputs[0].querySelector(".output-address").value).toBe(address);
+    expect(outputs[0].querySelectorAll("input")[1].value).toBe("0.1");
+    expect(outputs[1].querySelector(".output-address").value).toBe(address);
+    expect(outputs[1].querySelectorAll("input")[1].value).toBe("");
+
+    outputs[1].querySelector(".remove").click();
+    input(firstOutput.querySelector(".output-address"), "");
+    input(firstOutput.querySelectorAll("input")[1], "");
   });
 
   it("stacks receiving above change in independently scrollable components and collapses results", async () => {
@@ -275,9 +407,49 @@ describe("descriptor address page", () => {
     );
   });
 
-  it("re-derives on network changes and makes no external or persistent writes", async () => {
-    const fetchSpy = vi.fn();
-    globalThis.fetch = fetchSpy;
+  it("shows no partial results when a balance lookup fails", async () => {
+    let requestCount = 0;
+    globalThis.fetch = vi.fn(async () => {
+      requestCount += 1;
+      if (requestCount === 2) return { ok: false, status: 429 };
+      return { ok: true, status: 200, json: async () => esploraData(1000) };
+    });
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "2");
+    document.getElementById("deriveDescriptorButton").click();
+
+    await vi.waitFor(() =>
+      expect(document.getElementById("descriptorStatus").textContent).toContain("status 429")
+    );
+    expect(document.getElementById("descriptorStatus").classList.contains("error")).toBe(true);
+    expect(document.getElementById("descriptorResults").hidden).toBe(true);
+    expect(document.querySelectorAll(".descriptor-address-row")).toHaveLength(0);
+  });
+
+  it("aborts and clears an in-flight balance scan", async () => {
+    let requestSignal;
+    globalThis.fetch = vi.fn((_, options) => {
+      requestSignal = options.signal;
+      return new Promise((resolve, reject) => {
+        options.signal.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      });
+    });
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "1");
+    document.getElementById("deriveDescriptorButton").click();
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+
+    document.getElementById("clearDescriptorButton").click();
+    expect(requestSignal.aborted).toBe(true);
+    expect(document.getElementById("descriptorLoading").hidden).toBe(true);
+    expect(document.getElementById("descriptorStatus").textContent).toBe("");
+    expect(document.getElementById("descriptorResults").hidden).toBe(true);
+  });
+
+  it("re-derives on network changes and sends only derived addresses externally", async () => {
+    const fetchSpy = mockEsploraFetch();
     const xhrSpy = vi.spyOn(XMLHttpRequest.prototype, "open");
     const storageSpy = vi.spyOn(Storage.prototype, "setItem");
     const beaconSpy = vi.fn();
@@ -302,7 +474,12 @@ describe("descriptor address page", () => {
     await vi.waitFor(() =>
       expect(document.querySelectorAll("#receivingAddressList .descriptor-address-row")).toHaveLength(1)
     );
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    fetchSpy.mock.calls.forEach(([url, options]) => {
+      expect(url).toMatch(/^https:\/\/blockstream\.info\/api\/address\/bc1/);
+      expect(url).not.toContain(wpkhDescriptor);
+      expect(options.headers).toEqual({ Accept: "application/json" });
+    });
     expect(xhrSpy).not.toHaveBeenCalled();
     expect(beaconSpy).not.toHaveBeenCalled();
     expect(webSocketSpy).not.toHaveBeenCalled();
