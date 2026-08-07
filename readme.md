@@ -6,15 +6,22 @@ Browser-based unsigned Bitcoin PSBT builder, raw transaction decoder, and public
 
 Open the `Descriptor Addresses` tab and enter a public ranged descriptor containing
 `/<0;1>/*`. Branch `0` is used for receiving addresses and branch `1` for change
-addresses. Choose a start index and derive up to 100 address pairs at a time.
+addresses. Choose a start index and request up to 100 never-used addresses per
+branch; the default target is 20.
 
 All descriptor validation and address derivation happens entirely inside the
 browser. The descriptor and keys are never sent to an external service or stored
 by the application. Derived addresses are sent to the selected network's public
-Blockstream Esplora API for balance lookup, and only addresses with a positive
-available balance are displayed. Use a public watch-only descriptor; extended
-private keys and WIF private keys are rejected. A displayed address can be copied
-or added directly to the PSBT Builder as an output.
+Blockstream Esplora API for balance and usage lookup. The result keeps funded
+addresses and adds the requested number of never-used receiving and change
+addresses, scanning at most 200 pairs. Use a public watch-only descriptor;
+extended private keys and WIF private keys are rejected. A displayed address can
+be copied or added directly to the PSBT Builder as an output.
+
+Every scan requires an explicit privacy confirmation. The warning explains that
+Blockstream can observe the requesting IP address, correlate queried addresses,
+and infer wallet balances, history, and UTXOs. Cancel returns to the PSBT Builder
+without sending an Esplora request. Changing networks requires a new confirmed scan.
 
 ## Run with Docker Compose
 

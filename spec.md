@@ -35,13 +35,14 @@ When network changes:
 - All existing output address fields are revalidated.
 - Change address validation state is re-evaluated.
 - The raw transaction summary is re-rendered for the selected network.
-- Existing descriptor results are re-derived locally and their balances are
-  fetched for the new network, or the results are replaced with an error.
+- Existing descriptor requests are cancelled and results are cleared. The user
+  must click `Derive Addresses` and confirm the privacy warning again before any
+  Esplora request is made for the new network.
 
 ## 4. Descriptor Address Derivation
 
 The `Descriptor Addresses` menu opens a dedicated in-app page. It alters the PSBT
-Builder form only when the user selects `Use as Output` on a funded address.
+Builder form only when the user selects `Use as Output` on a displayed address.
 
 ### 4.1 Browser-Only Privacy Guarantee
 
@@ -49,7 +50,8 @@ Builder form only when the user selects `Use as Output` on a funded address.
   and address encoding run entirely in browser JavaScript bundled with the app.
 - Derivation itself makes no HTTP, WebSocket, beacon, or backend request. After
   derivation, each resulting address is sent to the selected network's public
-  Blockstream Esplora API for a balance lookup.
+  Blockstream Esplora API for a balance and transaction-history lookup. A scan
+  sends at most 200 receiving/change address pairs.
 - Descriptor text and derived addresses are not written to cookies, browser
   storage, application logs, or the page URL.
 - Descriptor text, extended public keys, and key-origin information are never
@@ -57,6 +59,13 @@ Builder form only when the user selects `Use as Output` on a funded address.
   Esplora.
 - Extended private keys and WIF private keys are rejected. Only public watch-only
   descriptors are accepted.
+- Every `Derive Addresses` click opens a required privacy dialog before validation,
+  derivation, loading state, or network activity begins. Consent is not remembered.
+- The dialog warns that Blockstream can observe the user's IP, correlate the
+  queried addresses, and infer wallet balances, history, and UTXOs.
+- `OK` begins the scan. `Cancel` makes no request, preserves the descriptor form,
+  and returns to the PSBT Builder. Escape and backdrop clicks cannot dismiss the
+  dialog; one of the two explicit actions is required.
 
 ### 4.2 Descriptor Requirements
 
@@ -72,25 +81,34 @@ Builder form only when the user selects `Use as Output` on a funded address.
 ### 4.3 Range and Results
 
 - Start index defaults to `0` and must be within `0..2147483647`.
-- Count defaults to `20` and must be within `1..100`.
-- The complete requested range must remain within the unhardened BIP32 limit.
+- Unused-address count defaults to `20` per branch and must be within `1..100`.
+- Scanning begins at the start index, proceeds in batches of up to 20 pairs, and
+  stops when each branch has the requested unused count or 200 pairs were checked.
+- The complete scan remains within the unhardened BIP32 limit.
 - While deriving and fetching balances, the page shows a loading spinner, marks
   the panel busy, and disables the derive button until the result or error is ready.
 - Results open in an expandable/collapsible panel. Receiving addresses appear in
   the upper component and change addresses in the lower component.
 - Each address component has its own bounded vertical scroll area, so long ranges
   do not make the surrounding page scroll with the list.
-- The requested range is checked exactly; the app does not scan beyond it to find
-  additional funded addresses.
 - Available balance is calculated in satoshis as confirmed funded minus confirmed
   spent plus mempool funded minus mempool spent.
-- Only addresses with an available balance greater than zero are displayed. An
-  empty-state message is shown independently for a branch with no funded addresses.
+- An address is funded when available balance is positive, unused when balance and
+  confirmed/mempool transaction counts are zero, and used-empty otherwise.
+- All funded addresses encountered and the first requested number of unused
+  addresses per branch are displayed in child-index order. Used-empty addresses
+  are hidden to avoid address reuse.
+- Funded and unused rows have distinct badges. Funded rows show their BTC/satoshi
+  balance; unused rows show zero. An empty-state message appears when a branch has
+  no displayable results.
+- Reaching the 200-pair cap returns the available partial results and an inline
+  warning with the unused counts found.
 - Balance requests use at most four concurrent HTTP requests. A failed or malformed
   lookup fails the complete scan rather than treating an unknown address as empty.
 - Clear, network changes, and newer derivations cancel or invalidate stale requests.
-- Every funded row shows its child index, address, BTC/satoshi balance, Copy, and
-  `Use as Output` actions.
+  Network changes never reuse prior consent or automatically restart a scan.
+- Every displayed row shows its child index, address, classification, balance,
+  Copy, and `Use as Output` actions.
 - `Use as Output` fills the first completely blank Builder output or appends a new
   output, leaves its amount blank, validates it, and opens the PSBT Builder without
   replacing populated outputs.

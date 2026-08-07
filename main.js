@@ -2336,6 +2336,7 @@ initDescriptorPage({
   getNetworkValue: () => document.getElementById("network").value,
   networkSelect: document.getElementById("network"),
   onUseAsOutput: applyAddressAsOutput,
+  onCancelPrivacyWarning: () => document.getElementById("openBuilderPage").click(),
 });
 addInput();
 addOutput();

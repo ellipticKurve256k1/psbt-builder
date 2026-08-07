@@ -455,6 +455,10 @@
       color: #f08b7f;
     }
 
+    #descriptorStatus.warning {
+      color: #f4b35f;
+    }
+
     .descriptor-loading {
       display: flex;
       align-items: center;
@@ -595,6 +599,37 @@
       font-size: 0.8rem;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
+    }
+
+    .descriptor-address-details {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+
+    .descriptor-address-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.16rem 0.42rem;
+      border: 1px solid;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .descriptor-address-badge.funded {
+      border-color: #2f8f70;
+      background: rgba(47, 143, 112, 0.16);
+      color: #8fd8b9;
+    }
+
+    .descriptor-address-badge.unused {
+      border-color: #55708c;
+      background: rgba(85, 112, 140, 0.16);
+      color: #b9cee1;
     }
 
     .descriptor-address-actions {
@@ -1207,6 +1242,68 @@
       backdrop-filter: blur(3px);
     }
 
+    .privacy-warning-dialog {
+      width: min(580px, calc(100vw - 24px));
+      padding: 0;
+      overflow: hidden;
+      border: 1px solid #a05f17;
+      border-radius: 14px;
+      color: #e9e6e2;
+      background: #151719;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.68);
+    }
+
+    .privacy-warning-dialog::backdrop {
+      background: rgba(3, 4, 5, 0.82);
+      backdrop-filter: blur(4px);
+    }
+
+    .privacy-warning-shell {
+      padding: 24px;
+    }
+
+    .privacy-warning-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .privacy-warning-icon {
+      display: inline-grid;
+      width: 42px;
+      height: 42px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid #a05f17;
+      border-radius: 50%;
+      color: #ffc266;
+      background: rgba(160, 95, 23, 0.2);
+      font-size: 1.45rem;
+    }
+
+    .privacy-warning-head h2 {
+      margin: 0;
+      color: #fff3df;
+      font-size: 1.2rem;
+    }
+
+    .privacy-warning-body {
+      color: #d6d0c9;
+      line-height: 1.55;
+    }
+
+    .privacy-warning-body strong {
+      color: #ffc266;
+    }
+
+    .privacy-warning-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
     .fee-calculator-shell {
       display: flex;
       max-height: min(820px, calc(100vh - 24px));
@@ -1451,7 +1548,7 @@
         grid-column: 1 / -1;
       }
 
-      .descriptor-address-balance {
+      .descriptor-address-details {
         grid-column: 1 / -1;
       }
     }
@@ -1645,7 +1742,7 @@
           <h2>Descriptor Address Derivation</h2>
         </div>
         <div class="privacy-notice" role="note">
-          <strong>Browser-only derivation:</strong> descriptor validation and every receiving/change address derivation happen locally in this browser. Your descriptor and keys never leave the browser. Only the resulting addresses are sent to Blockstream Esplora to fetch balances.
+          <strong>Browser-only derivation:</strong> descriptor validation and every receiving/change address derivation happen locally in this browser. Your descriptor and keys never leave the browser. Only resulting addresses—up to 200 pairs per scan—are sent to Blockstream Esplora to check balance and usage.
         </div>
         <div>
           <label for="descriptorInput">Public Multipath Descriptor</label>
@@ -1665,17 +1762,18 @@
               <input id="descriptorStartIndex" type="number" min="0" max="2147483647" step="1" value="0" inputmode="numeric">
             </div>
             <div>
-              <label for="descriptorCount">Count</label>
+              <label for="descriptorCount">Address Count</label>
               <input id="descriptorCount" type="number" min="1" max="100" step="1" value="20" inputmode="numeric">
             </div>
           </div>
+          <div class="hint">The scan keeps funded addresses and finds this many never-used addresses for both receiving and change, checking at most 200 pairs.</div>
           <div class="action-row">
             <button id="deriveDescriptorButton" type="button">Derive Addresses</button>
             <button id="clearDescriptorButton" type="button">Clear</button>
           </div>
           <div id="descriptorLoading" class="descriptor-loading" role="status" aria-live="polite" hidden>
             <span class="descriptor-loading-spinner" aria-hidden="true"></span>
-            <span>Deriving locally and fetching address balances…</span>
+            <span id="descriptorLoadingText">Deriving locally and fetching address activity…</span>
           </div>
           <div id="descriptorStatus" aria-live="polite"></div>
         </div>
@@ -1711,6 +1809,33 @@
       </section>
     </section>
   </main>
+
+  <dialog
+    id="descriptorPrivacyDialog"
+    class="privacy-warning-dialog"
+    aria-labelledby="descriptorPrivacyTitle"
+    aria-describedby="descriptorPrivacyDescription"
+  >
+    <div class="privacy-warning-shell">
+      <header class="privacy-warning-head">
+        <span class="privacy-warning-icon" aria-hidden="true">⚠</span>
+        <h2 id="descriptorPrivacyTitle">Esplora Privacy Warning</h2>
+      </header>
+      <div id="descriptorPrivacyDescription" class="privacy-warning-body">
+        <p>
+          Continuing sends up to 200 receiving and 200 change addresses to the public Blockstream Esplora API. Blockstream can observe your IP address, correlate these addresses as one wallet, and infer balances, transaction history, and UTXOs.
+        </p>
+        <p>
+          <strong>Your descriptor, xpub, and private keys remain in this browser and are not sent.</strong>
+        </p>
+        <p>Select OK to continue, or Cancel to return to the PSBT Builder without making an Esplora request.</p>
+      </div>
+      <div class="privacy-warning-actions">
+        <button type="button" id="descriptorPrivacyCancel">Cancel</button>
+        <button type="button" id="descriptorPrivacyOk" autofocus>OK</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="feeCalculatorDialog" class="fee-calculator-dialog" aria-labelledby="feeCalculatorTitle">
     <div class="fee-calculator-shell">

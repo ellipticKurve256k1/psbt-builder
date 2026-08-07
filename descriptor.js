@@ -12,6 +12,8 @@ const { Output, expand } = DescriptorsFactory(createBitcoinjsLib(ecc));
 
 const MAX_UNHARDENED_INDEX = 0x7fffffff;
 const MAX_DERIVATION_COUNT = 100;
+const MAX_DESCRIPTOR_SCAN_PAIRS = 200;
+const DESCRIPTOR_SCAN_BATCH_SIZE = 20;
 const ESPLORA_REQUEST_CONCURRENCY = 4;
 const ESPLORA_API_BASES = Object.freeze({
   mainnet: "https://blockstream.info/api",
@@ -149,7 +151,26 @@ function calculateEsploraBalance(data) {
   return readStats(data.chain_stats, "chain") + readStats(data.mempool_stats, "mempool");
 }
 
-async function fetchEsploraAddressBalance(address, networkValue, { signal } = {}) {
+function parseEsploraAddressActivity(data) {
+  const balanceSats = calculateEsploraBalance(data);
+  const chainTxCount = Number(parseEsploraStatValue(data.chain_stats.tx_count, "chain tx count"));
+  const mempoolTxCount = Number(
+    parseEsploraStatValue(data.mempool_stats.tx_count, "mempool tx count")
+  );
+  const txCount = chainTxCount + mempoolTxCount;
+  if (!Number.isSafeInteger(txCount)) {
+    throw new Error("Esplora returned an invalid total tx count.");
+  }
+  return { balanceSats, txCount };
+}
+
+function classifyAddressActivity({ balanceSats, txCount }) {
+  if (balanceSats > 0n) return "funded";
+  if (balanceSats === 0n && txCount === 0) return "unused";
+  return "used-empty";
+}
+
+async function fetchEsploraAddressActivity(address, networkValue, { signal } = {}) {
   const response = await fetch(getEsploraAddressApiUrl(networkValue, address), {
     headers: { Accept: "application/json" },
     signal,
@@ -157,7 +178,11 @@ async function fetchEsploraAddressBalance(address, networkValue, { signal } = {}
   if (!response.ok) {
     throw new Error(`Blockstream Esplora request failed (status ${response.status}).`);
   }
-  return calculateEsploraBalance(await response.json());
+  return parseEsploraAddressActivity(await response.json());
+}
+
+async function fetchEsploraAddressBalance(address, networkValue, options = {}) {
+  return (await fetchEsploraAddressActivity(address, networkValue, options)).balanceSats;
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -189,15 +214,87 @@ async function fetchDescriptorAddressBalances(
   { signal, concurrency = ESPLORA_REQUEST_CONCURRENCY } = {}
 ) {
   const addresses = rows.flatMap((row) => [row.receiveAddress, row.changeAddress]);
-  const balances = await mapWithConcurrency(addresses, concurrency, (address) =>
-    fetchEsploraAddressBalance(address, networkValue, { signal })
+  const activities = await mapWithConcurrency(addresses, concurrency, (address) =>
+    fetchEsploraAddressActivity(address, networkValue, { signal })
   );
 
   return rows.map((row, index) => ({
     ...row,
-    receiveBalanceSats: balances[index * 2],
-    changeBalanceSats: balances[index * 2 + 1],
+    receiveBalanceSats: activities[index * 2].balanceSats,
+    receiveTxCount: activities[index * 2].txCount,
+    changeBalanceSats: activities[index * 2 + 1].balanceSats,
+    changeTxCount: activities[index * 2 + 1].txCount,
   }));
+}
+
+async function discoverDescriptorAddresses({
+  descriptor,
+  network,
+  networkValue,
+  startIndex,
+  targetUnusedCount,
+  signal,
+  maxPairs = MAX_DESCRIPTOR_SCAN_PAIRS,
+  batchSize = DESCRIPTOR_SCAN_BATCH_SIZE,
+  onProgress,
+}) {
+  if (!network) throw new Error("A Bitcoin network is required.");
+  if (!Number.isSafeInteger(maxPairs) || maxPairs < 1) {
+    throw new Error("Scan limit must be a positive whole number.");
+  }
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1 || batchSize > MAX_DERIVATION_COUNT) {
+    throw new Error(`Scan batch size must be between 1 and ${MAX_DERIVATION_COUNT}.`);
+  }
+  const normalized = assertPublicMultipathDescriptor(descriptor, network);
+  const range = parseDescriptorRange(startIndex, targetUnusedCount);
+  const scanLimit = Math.min(
+    maxPairs,
+    MAX_DESCRIPTOR_SCAN_PAIRS,
+    MAX_UNHARDENED_INDEX - range.startIndex + 1
+  );
+  const rows = [];
+  let receivingUnusedCount = 0;
+  let changeUnusedCount = 0;
+  let scannedPairs = 0;
+
+  while (
+    scannedPairs < scanLimit
+    && (receivingUnusedCount < range.count || changeUnusedCount < range.count)
+  ) {
+    const count = Math.min(batchSize, scanLimit - scannedPairs);
+    const batch = deriveDescriptorAddressPairs({
+      descriptor: normalized,
+      network,
+      startIndex: range.startIndex + scannedPairs,
+      count,
+    });
+    const balancedBatch = await fetchDescriptorAddressBalances(batch, networkValue, { signal });
+    rows.push(...balancedBatch);
+    scannedPairs += balancedBatch.length;
+    receivingUnusedCount += balancedBatch.filter((row) =>
+      classifyAddressActivity({
+        balanceSats: row.receiveBalanceSats,
+        txCount: row.receiveTxCount,
+      }) === "unused"
+    ).length;
+    changeUnusedCount += balancedBatch.filter((row) =>
+      classifyAddressActivity({
+        balanceSats: row.changeBalanceSats,
+        txCount: row.changeTxCount,
+      }) === "unused"
+    ).length;
+    onProgress?.({ scannedPairs, maxPairs: scanLimit });
+  }
+
+  return {
+    rows,
+    scannedPairs,
+    targetUnusedCount: range.count,
+    receivingUnusedCount: Math.min(receivingUnusedCount, range.count),
+    changeUnusedCount: Math.min(changeUnusedCount, range.count),
+    reachedLimit:
+      receivingUnusedCount < range.count || changeUnusedCount < range.count,
+  };
 }
 
 function formatAddressBalance(sats) {
@@ -207,7 +304,13 @@ function formatAddressBalance(sats) {
   return `${whole}.${fraction} BTC (${value.toLocaleString("en-US")} sats)`;
 }
 
-function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseAsOutput }) {
+function initDescriptorPage({
+  getNetwork,
+  getNetworkValue,
+  networkSelect,
+  onUseAsOutput,
+  onCancelPrivacyWarning,
+}) {
   const descriptorInput = document.getElementById("descriptorInput");
   const startInput = document.getElementById("descriptorStartIndex");
   const countInput = document.getElementById("descriptorCount");
@@ -215,12 +318,16 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
   const clearButton = document.getElementById("clearDescriptorButton");
   const derivationPanel = document.getElementById("descriptorDerivationPanel");
   const loading = document.getElementById("descriptorLoading");
+  const loadingText = document.getElementById("descriptorLoadingText");
   const status = document.getElementById("descriptorStatus");
   const results = document.getElementById("descriptorResults");
   const resultsToggle = document.getElementById("descriptorResultsToggle");
   const resultsContent = document.getElementById("descriptorResultsContent");
   const receivingList = document.getElementById("receivingAddressList");
   const changeList = document.getElementById("changeAddressList");
+  const privacyDialog = document.getElementById("descriptorPrivacyDialog");
+  const privacyOkButton = document.getElementById("descriptorPrivacyOk");
+  const privacyCancelButton = document.getElementById("descriptorPrivacyCancel");
 
   if (
     !descriptorInput ||
@@ -230,12 +337,16 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
     !clearButton ||
     !derivationPanel ||
     !loading ||
+    !loadingText ||
     !status ||
     !results ||
     !resultsToggle ||
     !resultsContent ||
     !receivingList ||
     !changeList ||
+    !privacyDialog ||
+    !privacyOkButton ||
+    !privacyCancelButton ||
     !networkSelect
   ) {
     return;
@@ -245,15 +356,17 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
   let derivationRequestId = 0;
   let activeAbortController = null;
 
-  const setStatus = (message = "", isError = false) => {
+  const setStatus = (message = "", isError = false, isWarning = false) => {
     status.textContent = message;
     status.classList.toggle("error", isError);
+    status.classList.toggle("warning", isWarning);
   };
 
-  const setLoading = (isLoading) => {
+  const setLoading = (isLoading, message = "Deriving locally and fetching address activity…") => {
     loading.hidden = !isLoading;
+    if (isLoading) loadingText.textContent = message;
     deriveButton.disabled = isLoading;
-    deriveButton.textContent = isLoading ? "Deriving…" : "Derive Addresses";
+    deriveButton.textContent = isLoading ? "Scanning…" : "Derive Addresses";
     derivationPanel.setAttribute("aria-busy", String(isLoading));
   };
 
@@ -271,7 +384,7 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
     resultsContent.hidden = !expanded;
   };
 
-  const createAddressRow = (index, address, balanceSats, label) => {
+  const createAddressRow = (index, address, balanceSats, label, classification) => {
     const row = document.createElement("div");
     row.className = "descriptor-address-row";
 
@@ -285,6 +398,10 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
     const balance = document.createElement("span");
     balance.className = "descriptor-address-balance";
     balance.textContent = formatAddressBalance(balanceSats);
+
+    const badge = document.createElement("span");
+    badge.className = `descriptor-address-badge ${classification}`;
+    badge.textContent = classification === "funded" ? "Funded" : "Unused";
 
     const actions = document.createElement("div");
     actions.className = "descriptor-address-actions";
@@ -304,14 +421,18 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
     useButton.setAttribute("aria-label", `Use ${label} address at index ${index} as PSBT output`);
 
     actions.append(copyButton, useButton);
-    row.append(indexLabel, value, balance, actions);
+    const details = document.createElement("div");
+    details.className = "descriptor-address-details";
+    details.append(badge, balance);
+
+    row.append(indexLabel, value, details, actions);
     return row;
   };
 
   const createEmptyState = (label) => {
     const empty = document.createElement("div");
     empty.className = "descriptor-empty-state";
-    empty.textContent = `No ${label} addresses with available balance were found in this range.`;
+    empty.textContent = `No funded or unused ${label} addresses were found during this scan.`;
     return empty;
   };
 
@@ -320,29 +441,71 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
     changeList.replaceChildren();
   };
 
-  const renderRows = (rows) => {
+  const renderRows = (rows, targetUnusedCount) => {
     clearResults();
-    let receivingCount = 0;
-    let changeCount = 0;
+    let receivingFundedCount = 0;
+    let changeFundedCount = 0;
+    let receivingUnusedCount = 0;
+    let changeUnusedCount = 0;
     rows.forEach((row) => {
-      if (row.receiveBalanceSats > 0n) {
+      const receiveClassification = classifyAddressActivity({
+        balanceSats: row.receiveBalanceSats,
+        txCount: row.receiveTxCount,
+      });
+      const changeClassification = classifyAddressActivity({
+        balanceSats: row.changeBalanceSats,
+        txCount: row.changeTxCount,
+      });
+
+      if (receiveClassification === "funded") {
         receivingList.appendChild(
-          createAddressRow(row.index, row.receiveAddress, row.receiveBalanceSats, "receiving")
+          createAddressRow(
+            row.index,
+            row.receiveAddress,
+            row.receiveBalanceSats,
+            "receiving",
+            "funded"
+          )
         );
-        receivingCount += 1;
+        receivingFundedCount += 1;
+      } else if (receiveClassification === "unused" && receivingUnusedCount < targetUnusedCount) {
+        receivingList.appendChild(
+          createAddressRow(row.index, row.receiveAddress, 0n, "receiving", "unused")
+        );
+        receivingUnusedCount += 1;
       }
-      if (row.changeBalanceSats > 0n) {
+      if (changeClassification === "funded") {
         changeList.appendChild(
-          createAddressRow(row.index, row.changeAddress, row.changeBalanceSats, "change")
+          createAddressRow(
+            row.index,
+            row.changeAddress,
+            row.changeBalanceSats,
+            "change",
+            "funded"
+          )
         );
-        changeCount += 1;
+        changeFundedCount += 1;
+      } else if (changeClassification === "unused" && changeUnusedCount < targetUnusedCount) {
+        changeList.appendChild(
+          createAddressRow(row.index, row.changeAddress, 0n, "change", "unused")
+        );
+        changeUnusedCount += 1;
       }
     });
-    if (receivingCount === 0) receivingList.appendChild(createEmptyState("receiving"));
-    if (changeCount === 0) changeList.appendChild(createEmptyState("change"));
+    if (receivingFundedCount + receivingUnusedCount === 0) {
+      receivingList.appendChild(createEmptyState("receiving"));
+    }
+    if (changeFundedCount + changeUnusedCount === 0) {
+      changeList.appendChild(createEmptyState("change"));
+    }
     results.hidden = false;
     setResultsExpanded(true);
-    return { receivingCount, changeCount };
+    return {
+      receivingFundedCount,
+      changeFundedCount,
+      receivingUnusedCount,
+      changeUnusedCount,
+    };
   };
 
   const derive = async () => {
@@ -359,20 +522,29 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
     if (currentRequestId !== derivationRequestId) return;
 
     try {
-      const derivedRows = deriveDescriptorAddressPairs({
+      const discovery = await discoverDescriptorAddresses({
         descriptor: descriptorInput.value,
         network: getNetwork(),
+        networkValue: getNetworkValue(),
         startIndex: startInput.value,
-        count: countInput.value,
-      });
-      const rows = await fetchDescriptorAddressBalances(derivedRows, getNetworkValue(), {
+        targetUnusedCount: countInput.value,
         signal: activeAbortController.signal,
+        onProgress: ({ scannedPairs, maxPairs }) => {
+          if (currentRequestId === derivationRequestId) {
+            loadingText.textContent = `Scanning address activity… ${scannedPairs} / ${maxPairs} pairs checked`;
+          }
+        },
       });
       if (currentRequestId !== derivationRequestId) return;
-      const { receivingCount, changeCount } = renderRows(rows);
-      setStatus(
-        `Derived ${rows.length} address pairs locally. Blockstream found ${receivingCount} receiving and ${changeCount} change addresses with available balance.`
-      );
+      const counts = renderRows(discovery.rows, discovery.targetUnusedCount);
+      const summary =
+        `Scanned ${discovery.scannedPairs} address pairs locally. `
+        + `Receiving: ${counts.receivingFundedCount} funded, ${counts.receivingUnusedCount} unused. `
+        + `Change: ${counts.changeFundedCount} funded, ${counts.changeUnusedCount} unused.`;
+      const warning = discovery.reachedLimit
+        ? ` Scan limit reached before finding ${discovery.targetUnusedCount} unused addresses for each branch.`
+        : "";
+      setStatus(summary + warning, false, discovery.reachedLimit);
     } catch (error) {
       if (currentRequestId !== derivationRequestId) return;
       clearResults();
@@ -387,7 +559,18 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
   };
 
   deriveButton.addEventListener("click", () => {
+    privacyDialog.showModal();
+  });
+  privacyOkButton.addEventListener("click", () => {
+    privacyDialog.close("ok");
     void derive();
+  });
+  privacyCancelButton.addEventListener("click", () => {
+    privacyDialog.close("cancel");
+    onCancelPrivacyWarning?.();
+  });
+  privacyDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
   });
   clearButton.addEventListener("click", () => {
     derivationRequestId += 1;
@@ -407,7 +590,16 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
     setResultsExpanded(resultsToggle.getAttribute("aria-expanded") !== "true");
   });
   networkSelect.addEventListener("change", () => {
-    if (hasDerivationRequest) void derive();
+    if (!hasDerivationRequest) return;
+    derivationRequestId += 1;
+    activeAbortController?.abort();
+    activeAbortController = null;
+    clearResults();
+    results.hidden = true;
+    setResultsExpanded(true);
+    hasDerivationRequest = false;
+    setLoading(false);
+    setStatus("Network changed. Click Derive Addresses and confirm the privacy warning to scan again.");
   });
   resultsContent.addEventListener("click", async (event) => {
     const useButton = event.target.closest?.(".descriptor-use-output-button");
@@ -432,6 +624,8 @@ function initDescriptorPage({ getNetwork, getNetworkValue, networkSelect, onUseA
 export {
   MAX_UNHARDENED_INDEX,
   MAX_DERIVATION_COUNT,
+  MAX_DESCRIPTOR_SCAN_PAIRS,
+  DESCRIPTOR_SCAN_BATCH_SIZE,
   ESPLORA_REQUEST_CONCURRENCY,
   ESPLORA_API_BASES,
   containsPrivateKeyMaterial,
@@ -440,9 +634,13 @@ export {
   deriveDescriptorAddressPairs,
   getEsploraAddressApiUrl,
   calculateEsploraBalance,
+  parseEsploraAddressActivity,
+  classifyAddressActivity,
+  fetchEsploraAddressActivity,
   fetchEsploraAddressBalance,
   mapWithConcurrency,
   fetchDescriptorAddressBalances,
+  discoverDescriptorAddresses,
   formatAddressBalance,
   initDescriptorPage,
 };
