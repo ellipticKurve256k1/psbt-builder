@@ -28,13 +28,3 @@ Object.defineProperty(navigator, "clipboard", {
   configurable: true,
   value: { writeText: vi.fn(() => Promise.resolve()) },
 });
-
-Object.defineProperty(URL, "createObjectURL", {
-  configurable: true,
-  value: vi.fn(() => "blob:test"),
-});
-
-Object.defineProperty(URL, "revokeObjectURL", {
-  configurable: true,
-  value: vi.fn(),
-});

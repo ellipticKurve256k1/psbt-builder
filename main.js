@@ -661,12 +661,47 @@ function createPsbtFromInputs(
   return psbt;
 }
 
-function downloadPsbt(psbt) {
-  const blob = new Blob([psbt.toBuffer()], { type: "application/octet-stream" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "unsigned.psbt";
-  link.click();
+let appToastTimer = null;
+
+function hideAppToast() {
+  const toast = document.getElementById("appToast");
+  if (appToastTimer !== null) {
+    window.clearTimeout(appToastTimer);
+    appToastTimer = null;
+  }
+  toast.hidden = true;
+  toast.textContent = "";
+}
+
+function showAppToast(message, type = "success") {
+  const toast = document.getElementById("appToast");
+  hideAppToast();
+  toast.textContent = message;
+  toast.className = `app-toast app-toast--${type}`;
+  toast.hidden = false;
+  appToastTimer = window.setTimeout(() => {
+    toast.hidden = true;
+    appToastTimer = null;
+  }, 3500);
+}
+
+function focusAndScrollToPsbtResult() {
+  const result = document.getElementById("psbtDisplay");
+  const schedule = typeof window.requestAnimationFrame === "function"
+    ? window.requestAnimationFrame.bind(window)
+    : (callback) => window.setTimeout(callback, 0);
+  schedule(() => {
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    result.scrollIntoView?.({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+    result.focus({ preventScroll: true });
+  });
+}
+
+function resetGeneratedPsbt() {
+  document.getElementById("psbtDisplay").style.display = "none";
+  document.getElementById("psbtBase64").value = "";
+  window.currentPsbt = null;
+  hideAppToast();
 }
 
 function satoshiToBtcString(satoshi) {
@@ -960,9 +995,7 @@ function populateFormWithParsedData(parsed) {
   includeOpReturn.dispatchEvent(new Event("change"));
   opReturnMessage.dispatchEvent(new Event("input"));
 
-  document.getElementById("psbtDisplay").style.display = "none";
-  document.getElementById("psbtBase64").value = "";
-  window.currentPsbt = null;
+  resetGeneratedPsbt();
   updateFeeCalc();
 
   if (parsed.warnings.length > 0) {
@@ -1688,6 +1721,8 @@ document.getElementById("createPsbt").onclick = () => {
     document.getElementById("psbtBase64").value = psbtBase64;
     document.getElementById("psbtDisplay").style.display = "block";
     window.currentPsbt = psbt;
+    showAppToast("PSBT created successfully.");
+    focusAndScrollToPsbtResult();
   } catch (error) {
     alert("Error creating PSBT: " + error.message);
   }
@@ -1710,10 +1745,6 @@ document.getElementById("copyPsbtButton").onclick = () => {
       }, 2000);
     })
     .catch((error) => alert("Failed to copy: " + error));
-};
-
-document.getElementById("downloadPsbtButton").onclick = () => {
-  if (window.currentPsbt) downloadPsbt(window.currentPsbt);
 };
 
 document.getElementById("importDataButton").onclick = () => {
@@ -1744,9 +1775,7 @@ document.getElementById("clearButton").onclick = () => {
   document.getElementById("opReturnMessage").value = "";
   document.getElementById("sighashType").value = "DEFAULT";
   document.getElementById("opReturnGroup").style.display = "none";
-  document.getElementById("psbtDisplay").style.display = "none";
-  document.getElementById("psbtBase64").value = "";
-  window.currentPsbt = null;
+  resetGeneratedPsbt();
   addInput();
   addOutput();
   updateFeeCalc();
@@ -2502,6 +2531,8 @@ export {
   estimateVirtualSize,
   getInputWitnessSize,
   createPsbtFromInputs,
+  showAppToast,
+  focusAndScrollToPsbtResult,
   satoshiToBtcString,
   inputHashToTxid,
   bytesToHex,

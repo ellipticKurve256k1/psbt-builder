@@ -335,8 +335,7 @@
     }
 
     #clearButton,
-    #copyPsbtButton,
-    #downloadPsbtButton {
+    #copyPsbtButton {
       width: auto;
       margin: 0;
       padding: 0.52rem 0.9rem;
@@ -403,6 +402,27 @@
       display: flex;
       gap: 0.55rem;
       flex-wrap: wrap;
+    }
+
+    .app-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 1.25rem;
+      z-index: 1200;
+      width: min(90vw, 520px);
+      padding: 0.85rem 1rem;
+      border: 1px solid rgba(247, 147, 26, 0.6);
+      border-radius: 10px;
+      background: rgba(24, 25, 26, 0.98);
+      color: #fff8ee;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.38);
+      font-weight: 650;
+      text-align: center;
+      transform: translateX(-50%);
+    }
+
+    .app-toast--success {
+      border-color: rgba(76, 175, 80, 0.72);
     }
 
     .app-page {
@@ -1034,8 +1054,7 @@
       }
 
       #clearButton,
-      #copyPsbtButton,
-      #downloadPsbtButton {
+      #copyPsbtButton {
         width: 100%;
       }
 
@@ -2065,12 +2084,17 @@
 
         </aside>
       </section>
-      <section id="psbtDisplay" class="card" style="display: none;">
+      <section
+        id="psbtDisplay"
+        class="card"
+        style="display: none;"
+        tabindex="-1"
+        aria-label="Generated PSBT result"
+      >
         <label for="psbtBase64">PSBT (Base64) - Copy this to your wallet</label>
         <textarea id="psbtBase64" readonly rows="12"></textarea>
         <div class="result-actions">
-          <button id="copyPsbtButton">Copy to Clipboard</button>
-          <button id="downloadPsbtButton">Download PSBT File</button>
+          <button type="button" id="copyPsbtButton">Copy to Clipboard</button>
         </div>
       </section>
     </section>
@@ -2346,5 +2370,13 @@
       </footer>
     </div>
   </dialog>
+  <div
+    id="appToast"
+    class="app-toast app-toast--success"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    hidden
+  ></div>
 </body>
 </html>

@@ -1,4 +1,4 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { Buffer } from "buffer";
 import * as bitcoin from "bitcoinjs-lib";
 import {
@@ -27,6 +27,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   document.getElementById("clearButton").click();
   change(document.getElementById("network"), "mainnet");
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("builder rows, validation, and balance", () => {
@@ -129,6 +134,27 @@ describe("PSBT creation", () => {
     expect(parsed.data.inputs[0].sighashType).toBe(bitcoin.Transaction.SIGHASH_ALL);
     expect(parsed.txOutputs[0].value).toBe(90000000n);
     expect(document.getElementById("feeAmount").textContent).toBe("0.10000000 BTC");
+  });
+
+  it("shows a success toast and moves focus to the generated result", () => {
+    const result = document.getElementById("psbtDisplay");
+    result.scrollIntoView = vi.fn();
+    const focusSpy = vi.spyOn(result, "focus");
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+    vi.stubGlobal("requestAnimationFrame", vi.fn((callback) => {
+      callback(0);
+      return 1;
+    }));
+
+    fillValidBuilder();
+    document.getElementById("createPsbt").click();
+
+    const toast = document.getElementById("appToast");
+    expect(toast.hidden).toBe(false);
+    expect(toast.textContent).toBe("PSBT created successfully.");
+    expect(toast.classList.contains("app-toast--success")).toBe(true);
+    expect(result.scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
   });
 
   it("uses per-input sighash overrides and can explicitly unset one", () => {
@@ -413,17 +439,6 @@ describe("import, copy, download, and clear", () => {
     expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("Failed to copy"));
   });
 
-  it("downloads the current PSBT as unsigned.psbt", () => {
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
-    fillValidBuilder();
-    document.getElementById("createPsbt").click();
-    document.getElementById("downloadPsbtButton").click();
-    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
-    expect(clickSpy).toHaveBeenCalled();
-    const anchor = clickSpy.mock.instances[0];
-    expect(anchor.download).toBe("unsigned.psbt");
-  });
-
   it("clears all optional and generated state", () => {
     fillValidBuilder();
     input(document.getElementById("importData"), "anything");
@@ -437,5 +452,6 @@ describe("import, copy, download, and clear", () => {
     expect(document.getElementById("opReturnMessage").value).toBe("");
     expect(document.getElementById("psbtBase64").value).toBe("");
     expect(window.currentPsbt).toBeNull();
+    expect(document.getElementById("appToast").hidden).toBe(true);
   });
 });

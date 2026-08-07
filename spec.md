@@ -242,7 +242,8 @@ Clicking `Create PSBT` performs:
 4. Optionally append OP_RETURN output (if enabled and valid).
 5. Validate total amounts.
 6. Serialize PSBT to Base64.
-7. Show result panel and store current PSBT in `window.currentPsbt`.
+7. Show the result panel and store the current PSBT in `window.currentPsbt`.
+8. Show a non-blocking success toast, smoothly scroll the result into view, and move keyboard focus to it. Reduced-motion preferences replace smooth scrolling with an immediate scroll.
 
 ### 8.1.1 Input Mapping to PSBT
 
@@ -272,6 +273,7 @@ Each standard output is added with:
 - OP_RETURN checkbox/message/group visibility
 - PSBT display area and Base64 field
 - `window.currentPsbt`
+- Any visible result toast
 
 Then it initializes one default input row and one default output row.
 
@@ -280,11 +282,6 @@ Then it initializes one default input row and one default output row.
 - Copies Base64 PSBT text.
 - Button label temporarily changes to `Copied!` (2 seconds) on success.
 - Shows alert on failure.
-
-## 8.4 Download PSBT File
-
-- Available after PSBT creation (`window.currentPsbt` exists).
-- Generates `unsigned.psbt` as binary (`application/octet-stream`) via Blob download.
 
 ## 9. Fee and Balance Behavior
 

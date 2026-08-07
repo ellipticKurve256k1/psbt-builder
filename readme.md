@@ -70,6 +70,8 @@ npm ci
 npm run dev
 ```
 
+After creating a PSBT, the page confirms success and brings the generated result into view.
+
 ## Tests
 
 ```sh
