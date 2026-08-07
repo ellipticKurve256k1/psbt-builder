@@ -487,81 +487,186 @@
       to { transform: rotate(360deg); }
     }
 
-    .descriptor-results-toggle {
-      width: 100%;
+    .descriptor-command-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.75rem;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      color: inherit;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .descriptor-command-eyebrow {
+      display: block;
+      margin-bottom: 0.25rem;
+      color: #f4b35f;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .descriptor-command-header h2 {
+      margin: 0;
+      font-size: 1.28rem;
+    }
+
+    .descriptor-command-header p {
+      margin-top: 0.3rem;
+      color: #8da9c2;
+      font-size: 0.84rem;
+    }
+
+    #descriptorToggleAll {
+      width: auto;
+      min-width: 118px;
+      margin: 0;
+      padding: 0.55rem 0.8rem;
+      border-color: #76501f;
+      color: #f4b35f;
+    }
+
+    .descriptor-snapshot-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1.1rem;
+    }
+
+    .descriptor-snapshot-tile {
+      --descriptor-accent: #8da9c2;
+      position: relative;
+      min-height: 116px;
+      margin: 0;
+      padding: 1rem 1.05rem;
+      overflow: hidden;
+      border-color: #34495d;
+      background: #111923;
       text-align: left;
     }
 
-    .descriptor-results-toggle:hover,
-    .descriptor-results-toggle:focus-visible {
-      background: transparent;
-      box-shadow: none;
-      transform: none;
+    .descriptor-snapshot-tile::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: var(--descriptor-accent);
     }
 
-    .descriptor-results-toggle h2 {
-      margin: 0;
+    .descriptor-snapshot-tile.receiving {
+      --descriptor-accent: #42b8e8;
+      background: linear-gradient(135deg, rgba(66, 184, 232, 0.12), transparent 58%), #111923;
     }
 
-    .descriptor-collapse-arrow {
-      display: inline-grid;
-      width: 2rem;
-      height: 2rem;
-      flex: 0 0 auto;
-      place-items: center;
-      border: 1px solid #3d5064;
-      border-radius: 50%;
-      color: #f7931a;
-      font-size: 1.15rem;
-      transition: transform 160ms ease;
+    .descriptor-snapshot-tile.change {
+      --descriptor-accent: #a78bfa;
+      background: linear-gradient(135deg, rgba(167, 139, 250, 0.12), transparent 58%), #111923;
     }
 
-    .descriptor-results-toggle[aria-expanded="false"] .descriptor-collapse-arrow {
-      transform: rotate(-90deg);
+    .descriptor-snapshot-tile.funded {
+      --descriptor-accent: #63d7a8;
+      background:
+        radial-gradient(260px 120px at 95% 0%, rgba(247, 147, 26, 0.15), transparent 70%),
+        linear-gradient(135deg, rgba(99, 215, 168, 0.13), transparent 58%),
+        #111923;
+    }
+
+    .descriptor-snapshot-label {
+      display: block;
+      color: #a9bfd2;
+      font-size: 0.78rem;
+      font-weight: 750;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .descriptor-snapshot-value {
+      display: block;
+      margin-top: 0.35rem;
+      color: #f2f7fb;
+      font-size: clamp(1.65rem, 3vw, 2.2rem);
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+
+    .descriptor-snapshot-detail {
+      display: block;
+      margin-top: 0.45rem;
+      color: #8da9c2;
+      font-size: 0.78rem;
+    }
+
+    .descriptor-snapshot-tile.funded .descriptor-snapshot-detail {
+      color: #8fd8b9;
+      font-variant-numeric: tabular-nums;
     }
 
     .descriptor-results-content {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1.1rem;
+    }
+
+    .descriptor-address-books {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: start;
-      gap: 0.9rem;
-      margin-top: 0.85rem;
+      gap: 1.1rem;
     }
 
     .descriptor-address-component {
       overflow: hidden;
       border: 1px solid #2f3f50;
-      border-radius: 12px;
+      border-radius: 14px;
       background: #111923;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+    }
+
+    .descriptor-address-component.receiving { border-top: 3px solid #42b8e8; }
+    .descriptor-address-component.change { border-top: 3px solid #a78bfa; }
+
+    .descriptor-address-component.funded {
+      border-color: #3f735f;
+      border-top: 3px solid #63d7a8;
+      background:
+        radial-gradient(620px 180px at 100% 0%, rgba(247, 147, 26, 0.08), transparent 68%),
+        #101923;
     }
 
     .descriptor-address-component-head {
+      width: 100%;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 0.7rem;
-      padding: 0.7rem 0.8rem;
-      border-bottom: 1px solid #2f3f50;
+      margin: 0;
+      padding: 0.9rem 1rem;
+      border-width: 0 0 1px;
+      border-color: #2f3f50;
+      border-radius: 0;
       background: #17222e;
+      color: inherit;
+      text-align: left;
     }
 
-    .descriptor-address-component-head h3 {
+    .descriptor-address-component-head:hover,
+    .descriptor-address-component-head:focus-visible {
+      border-color: #4d6379;
+      background: #1b2937;
+      transform: none;
+    }
+
+    .descriptor-section-title {
+      display: block;
       margin: 0;
       color: #dceaf6;
-      font-size: 0.95rem;
+      font-size: 1.02rem;
+      font-weight: 750;
     }
 
-    .descriptor-address-component-head span {
+    .descriptor-address-component-subtitle {
+      display: block;
+      margin-top: 0.2rem;
       color: #8da9c2;
-      font-size: 0.78rem;
+      font-size: 0.74rem;
     }
 
     .descriptor-address-component-meta {
@@ -573,64 +678,114 @@
       text-align: right;
     }
 
+    .descriptor-section-arrow {
+      display: inline-grid;
+      width: 1.8rem;
+      height: 1.8rem;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid #465c72;
+      border-radius: 50%;
+      color: #f4b35f;
+      transition: transform 160ms ease;
+    }
+
+    .descriptor-address-component-head[aria-expanded="false"] .descriptor-section-arrow {
+      transform: rotate(-90deg);
+    }
+
     .descriptor-address-count {
       padding: 0.12rem 0.38rem;
       border: 1px solid #3d5064;
       border-radius: 999px;
       background: rgba(85, 112, 140, 0.12);
-      color: #c7daeb !important;
+      color: #c7daeb;
+      font-size: 0.76rem;
       white-space: nowrap;
     }
 
+    .descriptor-funded-ledger-head {
+      display: grid;
+      grid-template-columns: 160px 72px minmax(260px, 1fr) 220px minmax(210px, auto);
+      gap: 0.9rem;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid #2f3f50;
+      background: #101820;
+      color: #7893aa;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
     .descriptor-address-scroll {
-      max-height: 260px;
+      max-height: 420px;
       overflow-y: auto;
       overflow-x: hidden;
       overscroll-behavior: contain;
       scrollbar-gutter: stable;
     }
 
+    #fundedAddressList { max-height: 440px; }
+
     .descriptor-address-row {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
+      grid-template-columns: 76px minmax(0, 1fr) minmax(190px, auto);
+      grid-template-areas:
+        "index details actions"
+        "address address actions"
+        "balance balance actions";
       align-items: center;
-      gap: 0.7rem;
-      padding: 0.68rem 0.8rem;
+      gap: 0.45rem 0.9rem;
+      min-height: 116px;
+      padding: 0.9rem 1rem;
       border-bottom: 1px solid #263544;
     }
 
-    .descriptor-address-row:last-child {
-      border-bottom: 0;
+    #fundedAddressList .descriptor-address-row {
+      grid-template-columns: 160px 72px minmax(260px, 1fr) 220px minmax(210px, auto);
+      grid-template-areas: "details index address balance actions";
+      gap: 0.9rem;
+      min-height: 82px;
     }
 
+    .descriptor-address-row:last-child { border-bottom: 0; }
+
     .descriptor-address-index {
+      grid-area: index;
       color: #8da9c2;
-      font-size: 0.8rem;
+      font-size: 0.84rem;
+      font-weight: 700;
       font-variant-numeric: tabular-nums;
     }
 
     .descriptor-address-row code {
-      grid-column: 1 / -1;
+      grid-area: address;
       overflow-wrap: anywhere;
       color: #d7e6f4;
+      font-size: 0.9rem;
+      line-height: 1.45;
     }
 
     .descriptor-address-balance {
+      grid-area: balance;
       color: #8fd8b9;
-      font-size: 0.8rem;
+      font-size: 0.82rem;
       font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
 
     .descriptor-address-details {
+      grid-area: details;
       display: flex;
       align-items: center;
-      justify-content: flex-end;
+      justify-content: flex-start;
       gap: 0.45rem;
       flex-wrap: wrap;
     }
 
-    .descriptor-address-badge {
+    .descriptor-address-badge,
+    .descriptor-address-branch {
       display: inline-flex;
       align-items: center;
       padding: 0.16rem 0.42rem;
@@ -655,33 +810,60 @@
     }
 
     .descriptor-address-branch {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.16rem 0.42rem;
-      border: 1px solid #76501f;
-      border-radius: 999px;
+      border-color: #76501f;
       background: rgba(247, 147, 26, 0.1);
       color: #f4b35f;
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
     }
 
     .descriptor-address-actions {
-      grid-column: 1 / -1;
-      display: flex;
+      grid-area: actions;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
       gap: 0.4rem;
-      flex-wrap: wrap;
-      justify-content: flex-start;
+      align-items: start;
+      min-width: 190px;
     }
 
     .descriptor-copy-button,
     .descriptor-use-output-button,
-    .descriptor-use-input-button {
+    .descriptor-use-input-button,
+    .descriptor-action-menu-trigger,
+    .descriptor-action-menu-panel button {
       width: auto;
+      margin: 0;
       padding: 0.35rem 0.65rem;
       font-size: 0.78rem;
+    }
+
+    .descriptor-use-output-button,
+    .descriptor-use-input-button { min-height: 36px; }
+
+    .descriptor-action-menu-trigger {
+      width: 38px;
+      min-height: 36px;
+      padding: 0.25rem;
+      border-color: #465c72;
+      color: #c7daeb;
+      font-size: 1rem;
+      line-height: 1;
+    }
+
+    .descriptor-action-menu-panel {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 0.35rem;
+      padding: 0.45rem;
+      border: 1px solid #465c72;
+      border-radius: 9px;
+      background: #0d141c;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+    }
+
+    .descriptor-action-menu-panel[hidden] { display: none; }
+
+    .descriptor-action-menu-panel button {
+      width: 100%;
+      text-align: left;
     }
 
     .descriptor-use-input-button:disabled {
@@ -690,7 +872,7 @@
     }
 
     .descriptor-input-support-reason {
-      flex-basis: 100%;
+      grid-column: 1 / -1;
       max-width: none;
       color: #f08b7f;
       font-size: 0.7rem;
@@ -699,9 +881,23 @@
     }
 
     .descriptor-empty-state {
-      padding: 1rem 0.8rem;
+      padding: 1.4rem 1rem;
       color: #8da9c2;
       font-size: 0.85rem;
+    }
+
+    @media (max-width: 1100px) {
+      .descriptor-address-books { grid-template-columns: 1fr; }
+      .descriptor-funded-ledger-head { display: none; }
+
+      #fundedAddressList .descriptor-address-row {
+        grid-template-columns: 76px minmax(0, 1fr) minmax(190px, auto);
+        grid-template-areas:
+          "index details actions"
+          "address address actions"
+          "balance balance actions";
+        min-height: 116px;
+      }
     }
 
     #rawTxHexInput {
@@ -812,9 +1008,6 @@
         max-width: none;
       }
 
-      .descriptor-results-content {
-        grid-template-columns: 1fr;
-      }
     }
 
     @media (max-width: 760px) {
@@ -1697,16 +1890,36 @@
         grid-template-columns: 1fr;
       }
 
-      .descriptor-address-row {
-        grid-template-columns: minmax(0, 1fr) auto;
+      .descriptor-command-header {
+        align-items: stretch;
+        flex-direction: column;
       }
 
-      .descriptor-address-index {
-        grid-column: 1 / -1;
+      #descriptorToggleAll {
+        width: 100%;
       }
 
-      .descriptor-address-details {
-        grid-column: 1 / -1;
+      .descriptor-snapshot-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .descriptor-address-row,
+      #fundedAddressList .descriptor-address-row {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+          "index"
+          "details"
+          "address"
+          "balance"
+          "actions";
+      }
+
+      .descriptor-address-actions {
+        min-width: 0;
+      }
+
+      .descriptor-address-component-head {
+        align-items: flex-start;
       }
 
       .utxo-selection-row {
@@ -1946,47 +2159,80 @@
       </section>
 
       <section id="descriptorResults" class="card" hidden>
-        <button
-          id="descriptorResultsToggle"
-          class="descriptor-results-toggle"
-          type="button"
-          aria-expanded="true"
-          aria-controls="descriptorResultsContent"
-        >
-          <h2>Derived Addresses</h2>
-          <span class="descriptor-collapse-arrow" aria-hidden="true">▾</span>
-        </button>
+        <header class="descriptor-command-header">
+          <div>
+            <span class="descriptor-command-eyebrow">Wallet snapshot</span>
+            <h2>Derived Address Command Center</h2>
+            <p>Review spendable funds first, then choose fresh receiving or change destinations.</p>
+          </div>
+          <button id="descriptorToggleAll" type="button">Collapse All</button>
+        </header>
+        <div class="descriptor-snapshot-grid" aria-label="Descriptor result summary">
+          <button type="button" class="descriptor-snapshot-tile receiving" data-descriptor-section="receiving" aria-controls="receivingAddressPanel">
+            <span class="descriptor-snapshot-label">Receiving</span>
+            <strong id="receivingSnapshotCount" class="descriptor-snapshot-value">0</strong>
+            <span class="descriptor-snapshot-detail">Unused addresses · Branch 0</span>
+          </button>
+          <button type="button" class="descriptor-snapshot-tile change" data-descriptor-section="change" aria-controls="changeAddressPanel">
+            <span class="descriptor-snapshot-label">Change</span>
+            <strong id="changeSnapshotCount" class="descriptor-snapshot-value">0</strong>
+            <span class="descriptor-snapshot-detail">Unused addresses · Branch 1</span>
+          </button>
+          <button type="button" class="descriptor-snapshot-tile funded" data-descriptor-section="funded" aria-controls="fundedAddressPanel">
+            <span class="descriptor-snapshot-label">Funded addresses</span>
+            <strong id="fundedSnapshotCount" class="descriptor-snapshot-value">0</strong>
+            <span id="fundedSnapshotBalance" class="descriptor-snapshot-detail">0.00000000 BTC (0 sats)</span>
+          </button>
+        </div>
         <div id="descriptorResultsContent" class="descriptor-results-content">
-          <section class="descriptor-address-component" aria-labelledby="receivingAddressesTitle">
-            <div class="descriptor-address-component-head">
-              <h3 id="receivingAddressesTitle">Receiving Addresses</h3>
-              <div class="descriptor-address-component-meta">
-                <span>Branch 0</span>
-                <span id="receivingAddressCount" class="descriptor-address-count">0 unused</span>
-              </div>
-            </div>
-            <div id="receivingAddressList" class="descriptor-address-scroll"></div>
-          </section>
-          <section class="descriptor-address-component" aria-labelledby="changeAddressesTitle">
-            <div class="descriptor-address-component-head">
-              <h3 id="changeAddressesTitle">Change Addresses</h3>
-              <div class="descriptor-address-component-meta">
-                <span>Branch 1</span>
-                <span id="changeAddressCount" class="descriptor-address-count">0 unused</span>
-              </div>
-            </div>
-            <div id="changeAddressList" class="descriptor-address-scroll"></div>
-          </section>
-          <section class="descriptor-address-component" aria-labelledby="fundedAddressesTitle">
-            <div class="descriptor-address-component-head">
-              <h3 id="fundedAddressesTitle">Funded Addresses</h3>
-              <div class="descriptor-address-component-meta">
-                <span>Both branches</span>
+          <section id="fundedAddressPanel" class="descriptor-address-component funded" aria-labelledby="fundedAddressesTitle">
+            <button id="fundedAddressesToggle" class="descriptor-address-component-head" type="button" aria-expanded="true" aria-controls="fundedAddressList">
+              <span>
+                <span id="fundedAddressesTitle" class="descriptor-section-title">Funded Addresses</span>
+                <span class="descriptor-address-component-subtitle">Spendable balances across receiving and change branches</span>
+              </span>
+              <span class="descriptor-address-component-meta">
                 <span id="fundedAddressCount" class="descriptor-address-count">0 funded</span>
-              </div>
+                <span class="descriptor-section-arrow" aria-hidden="true">▾</span>
+              </span>
+            </button>
+            <div id="fundedLedgerHead" class="descriptor-funded-ledger-head" aria-hidden="true">
+              <span>Branch</span>
+              <span>Index</span>
+              <span>Address</span>
+              <span>Available balance</span>
+              <span>Actions</span>
             </div>
             <div id="fundedAddressList" class="descriptor-address-scroll"></div>
           </section>
+          <div class="descriptor-address-books">
+            <section id="receivingAddressPanel" class="descriptor-address-component receiving" aria-labelledby="receivingAddressesTitle">
+              <button id="receivingAddressesToggle" class="descriptor-address-component-head" type="button" aria-expanded="true" aria-controls="receivingAddressList">
+                <span>
+                  <span id="receivingAddressesTitle" class="descriptor-section-title">Receiving Addresses</span>
+                  <span class="descriptor-address-component-subtitle">Fresh destinations · Branch 0</span>
+                </span>
+                <span class="descriptor-address-component-meta">
+                  <span id="receivingAddressCount" class="descriptor-address-count">0 unused</span>
+                  <span class="descriptor-section-arrow" aria-hidden="true">▾</span>
+                </span>
+              </button>
+              <div id="receivingAddressList" class="descriptor-address-scroll"></div>
+            </section>
+            <section id="changeAddressPanel" class="descriptor-address-component change" aria-labelledby="changeAddressesTitle">
+              <button id="changeAddressesToggle" class="descriptor-address-component-head" type="button" aria-expanded="true" aria-controls="changeAddressList">
+                <span>
+                  <span id="changeAddressesTitle" class="descriptor-section-title">Change Addresses</span>
+                  <span class="descriptor-address-component-subtitle">Fresh destinations · Branch 1</span>
+                </span>
+                <span class="descriptor-address-component-meta">
+                  <span id="changeAddressCount" class="descriptor-address-count">0 unused</span>
+                  <span class="descriptor-section-arrow" aria-hidden="true">▾</span>
+                </span>
+              </button>
+              <div id="changeAddressList" class="descriptor-address-scroll"></div>
+            </section>
+          </div>
         </div>
       </section>
     </section>

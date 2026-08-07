@@ -87,11 +87,14 @@ Builder form only when the user selects `Use as Output` on a displayed address.
 - The complete scan remains within the unhardened BIP32 limit.
 - While deriving and fetching balances, the page shows a loading spinner, marks
   the panel busy, and disables the derive button until the result or error is ready.
-- Results open in an expandable/collapsible panel containing separate receiving,
-  change, and funded-address components with visible result counts. The three
-  components appear side by side on desktop and stack on narrower screens.
-- Each component has its own bounded vertical scroll area, so long ranges do not
-  make the surrounding page scroll with the list.
+- Results open as a wallet command center. Three summary tiles show unused
+  receiving/change counts, funded-address count, and aggregate funded balance.
+  Selecting a tile expands and focuses its corresponding section.
+- The funded-address ledger spans the full result width. Receiving and change
+  address books appear side by side underneath and stack below 1100px.
+- Each component has its own bounded vertical scroll area and independent collapse
+  control. Collapse state survives Clear, network changes, and subsequent scans
+  until page reload. An Expand All/Collapse All control updates every section.
 - Available balance is calculated in satoshis as confirmed funded minus confirmed
   spent plus mempool funded minus mempool spent.
 - An address is funded when available balance is positive, unused when balance and
@@ -109,9 +112,12 @@ Builder form only when the user selects `Use as Output` on a displayed address.
   lookup fails the complete scan rather than treating an unknown address as empty.
 - Clear, network changes, and newer derivations cancel or invalidate stale requests.
   Network changes never reuse prior consent or automatically restart a scan.
-- Every displayed row shows its child index, address, classification, balance,
-  Copy, and `Use as Output` actions.
-- Funded P2WPKH and plain key-path P2TR rows also provide `Use UTXOs as Inputs`.
+- Every displayed row shows its child index, address, classification, and balance.
+  Receiving/change rows keep `Use as Output` visible and place Copy in a keyboard-
+  accessible overflow menu.
+- Funded P2WPKH and plain key-path P2TR rows keep `Use UTXOs as Inputs` visible;
+  Copy and `Use as Output` appear in the row's overflow menu. Menus close after an
+  action, outside click, Escape, or opening a different menu.
   Funded P2WSH/multisig, Taproot script-tree, and other unsupported rows show the
   action disabled with an explanation.
 - The input action requests `GET /address/:address/utxo` from the selected

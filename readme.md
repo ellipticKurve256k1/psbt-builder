@@ -14,9 +14,11 @@ browser. The descriptor and keys are never sent to an external service or stored
 by the application. Derived addresses are sent to the selected network's public
 Blockstream Esplora API for balance and usage lookup. The result keeps funded
 addresses and adds the requested number of never-used receiving and change
-addresses, scanning at most 200 pairs. Results are separated into receiving,
-change, and funded-address panels with independent scrolling. The funded panel
-identifies the originating branch and loads exact UTXOs only when requested.
+addresses, scanning at most 200 pairs. A wallet command center summarizes counts
+and total funded balance, presents funded addresses in a full-width ledger, and
+places spacious receiving/change address books underneath. Each section scrolls
+and collapses independently. The funded ledger identifies the originating branch
+and loads exact UTXOs only when requested.
 Use a public watch-only descriptor;
 extended private keys and WIF private keys are rejected. A displayed address can
 be copied or added directly to the PSBT Builder as an output.

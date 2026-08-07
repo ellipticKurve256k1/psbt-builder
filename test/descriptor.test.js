@@ -546,6 +546,11 @@ describe("descriptor address page", () => {
     expect(document.getElementById("receivingAddressCount").textContent).toBe("2 unused");
     expect(document.getElementById("changeAddressCount").textContent).toBe("2 unused");
     expect(document.getElementById("fundedAddressCount").textContent).toBe("0 funded");
+    expect(document.getElementById("receivingSnapshotCount").textContent).toBe("2");
+    expect(document.getElementById("changeSnapshotCount").textContent).toBe("2");
+    expect(document.getElementById("fundedSnapshotCount").textContent).toBe("0");
+    expect(document.getElementById("fundedSnapshotBalance").textContent)
+      .toBe("0.00000000 BTC (0 sats)");
 
     receivingRows[0].querySelector(".descriptor-copy-button").click();
     await vi.waitFor(() =>
@@ -559,6 +564,10 @@ describe("descriptor address page", () => {
     expect(document.getElementById("descriptorResults").hidden).toBe(true);
     expect(document.querySelectorAll("#fundedAddressList .descriptor-address-row")).toHaveLength(0);
     expect(document.getElementById("fundedAddressCount").textContent).toBe("0 funded");
+    expect(document.getElementById("receivingSnapshotCount").textContent).toBe("0");
+    expect(document.getElementById("changeSnapshotCount").textContent).toBe("0");
+    expect(document.getElementById("fundedSnapshotBalance").textContent)
+      .toBe("0.00000000 BTC (0 sats)");
   });
 
   it("separates funded addresses from unused receiving and change addresses", async () => {
@@ -597,6 +606,68 @@ describe("descriptor address page", () => {
     expect(document.getElementById("receivingAddressCount").textContent).toBe("2 unused");
     expect(document.getElementById("changeAddressCount").textContent).toBe("2 unused");
     expect(document.getElementById("fundedAddressCount").textContent).toBe("2 funded");
+    expect(document.getElementById("fundedSnapshotCount").textContent).toBe("2");
+    expect(document.getElementById("fundedSnapshotBalance").textContent)
+      .toBe("0.00040000 BTC (40,000 sats)");
+  });
+
+  it("uses primary actions and accessible overflow menus for address rows", async () => {
+    const fundedAddress = expectedWpkh(rootA, 0, 0);
+    mockEsploraFetch((url) => url.includes(fundedAddress) ? { balance: 50_000 } : { balance: 0 });
+    input(document.getElementById("descriptorInput"), wpkhDescriptor);
+    input(document.getElementById("descriptorCount"), "2");
+    confirmDescriptorDerivation();
+    await vi.waitFor(() =>
+      expect(document.querySelector("#fundedAddressList .descriptor-address-row")).not.toBeNull()
+    );
+
+    const receivingRows = document.querySelectorAll("#receivingAddressList .descriptor-address-row");
+    const firstActions = receivingRows[0].querySelector(".descriptor-address-actions");
+    expect(firstActions.firstElementChild.classList.contains("descriptor-use-output-button"))
+      .toBe(true);
+    const firstTrigger = firstActions.querySelector(".descriptor-action-menu-trigger");
+    const firstMenu = firstActions.querySelector(".descriptor-action-menu-panel");
+    expect(firstTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(firstMenu.hidden).toBe(true);
+    expect(firstMenu.getAttribute("role")).toBe("menu");
+    expect(firstMenu.querySelector(".descriptor-copy-button").getAttribute("role"))
+      .toBe("menuitem");
+
+    firstTrigger.click();
+    expect(firstTrigger.getAttribute("aria-expanded")).toBe("true");
+    expect(firstMenu.hidden).toBe(false);
+    const secondTrigger = receivingRows[1].querySelector(".descriptor-action-menu-trigger");
+    secondTrigger.click();
+    expect(firstTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(secondTrigger.getAttribute("aria-expanded")).toBe("true");
+
+    secondTrigger.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    const secondCopy = receivingRows[1].querySelector(".descriptor-copy-button");
+    expect(document.activeElement).toBe(secondCopy);
+    secondCopy.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(secondTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(secondTrigger);
+
+    firstTrigger.click();
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(firstTrigger.getAttribute("aria-expanded")).toBe("false");
+    firstTrigger.click();
+    firstMenu.querySelector(".descriptor-copy-button").click();
+    await vi.waitFor(() =>
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        receivingRows[0].querySelector("code").textContent
+      )
+    );
+    expect(firstTrigger.getAttribute("aria-expanded")).toBe("false");
+    expect(firstTrigger.textContent).toBe("✓");
+
+    const fundedActions = document.querySelector(
+      "#fundedAddressList .descriptor-address-actions"
+    );
+    expect(fundedActions.firstElementChild.classList.contains("descriptor-use-input-button"))
+      .toBe(true);
+    expect(fundedActions.querySelector(".descriptor-action-menu-panel .descriptor-use-output-button"))
+      .not.toBeNull();
   });
 
   it("selects confirmed and opt-in unconfirmed UTXOs and imports them as Builder inputs", async () => {
@@ -812,9 +883,12 @@ describe("descriptor address page", () => {
     expect(document.getElementById("fundedAddressList").textContent).toContain(
       "No funded addresses"
     );
+    expect(document.getElementById("fundedSnapshotCount").textContent).toBe("0");
+    expect(document.getElementById("fundedSnapshotBalance").textContent)
+      .toBe("0.00000000 BTC (0 sats)");
   });
 
-  it("shows three independently scrollable result components and collapses them together", async () => {
+  it("shows the funded hero above spacious address books with independent persistent collapse", async () => {
     input(document.getElementById("descriptorInput"), wpkhDescriptor);
     input(document.getElementById("descriptorCount"), "2");
     confirmDescriptorDerivation();
@@ -826,26 +900,61 @@ describe("descriptor address page", () => {
     const changeList = document.getElementById("changeAddressList");
     const fundedList = document.getElementById("fundedAddressList");
     const content = document.getElementById("descriptorResultsContent");
-    const toggle = document.getElementById("descriptorResultsToggle");
+    const fundedPanel = document.getElementById("fundedAddressPanel");
+    const addressBooks = content.querySelector(".descriptor-address-books");
+    const receivingToggle = document.getElementById("receivingAddressesToggle");
+    const changeToggle = document.getElementById("changeAddressesToggle");
+    const fundedToggle = document.getElementById("fundedAddressesToggle");
+    const toggleAll = document.getElementById("descriptorToggleAll");
     expect(receivingList.classList.contains("descriptor-address-scroll")).toBe(true);
     expect(changeList.classList.contains("descriptor-address-scroll")).toBe(true);
     expect(fundedList.classList.contains("descriptor-address-scroll")).toBe(true);
     expect(
-      receivingList.compareDocumentPosition(changeList) & Node.DOCUMENT_POSITION_FOLLOWING
+      fundedPanel.compareDocumentPosition(addressBooks) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
-      changeList.compareDocumentPosition(fundedList) & Node.DOCUMENT_POSITION_FOLLOWING
+      receivingList.compareDocumentPosition(changeList) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(content.querySelectorAll(".descriptor-address-component")).toHaveLength(3);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(content.hidden).toBe(false);
+    expect(toggleAll.textContent).toBe("Collapse All");
 
-    toggle.click();
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(content.hidden).toBe(true);
-    toggle.click();
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(content.hidden).toBe(false);
+    receivingToggle.click();
+    expect(receivingToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(receivingList.hidden).toBe(true);
+    expect(changeList.hidden).toBe(false);
+    expect(fundedList.hidden).toBe(false);
+    expect(toggleAll.textContent).toBe("Expand All");
+
+    confirmDescriptorDerivation();
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("#changeAddressList .descriptor-address-row")).toHaveLength(2)
+    );
+    expect(receivingList.hidden).toBe(true);
+    const receivingTile = document.querySelector(
+      '.descriptor-snapshot-tile[data-descriptor-section="receiving"]'
+    );
+    receivingTile.click();
+    expect(receivingList.hidden).toBe(false);
+    expect(document.activeElement).toBe(receivingToggle);
+
+    toggleAll.click();
+    expect(receivingList.hidden).toBe(true);
+    expect(changeList.hidden).toBe(true);
+    expect(fundedList.hidden).toBe(true);
+    expect(fundedToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggleAll.textContent).toBe("Expand All");
+    toggleAll.click();
+    expect(receivingList.hidden).toBe(false);
+    expect(changeList.hidden).toBe(false);
+    expect(fundedList.hidden).toBe(false);
+
+    changeToggle.click();
+    change(document.getElementById("network"), "testnet");
+    expect(changeToggle.getAttribute("aria-expanded")).toBe("false");
+    document.getElementById("clearDescriptorButton").click();
+    expect(changeToggle.getAttribute("aria-expanded")).toBe("false");
+    toggleAll.click();
+    expect(changeToggle.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("shows inline errors and handles clipboard failure", async () => {

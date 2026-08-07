@@ -405,14 +405,25 @@ function initDescriptorPage({
   const loadingText = document.getElementById("descriptorLoadingText");
   const status = document.getElementById("descriptorStatus");
   const results = document.getElementById("descriptorResults");
-  const resultsToggle = document.getElementById("descriptorResultsToggle");
+  const toggleAllButton = document.getElementById("descriptorToggleAll");
   const resultsContent = document.getElementById("descriptorResultsContent");
   const receivingList = document.getElementById("receivingAddressList");
   const changeList = document.getElementById("changeAddressList");
   const fundedList = document.getElementById("fundedAddressList");
+  const receivingPanel = document.getElementById("receivingAddressPanel");
+  const changePanel = document.getElementById("changeAddressPanel");
+  const fundedPanel = document.getElementById("fundedAddressPanel");
+  const receivingToggle = document.getElementById("receivingAddressesToggle");
+  const changeToggle = document.getElementById("changeAddressesToggle");
+  const fundedToggle = document.getElementById("fundedAddressesToggle");
+  const fundedLedgerHead = document.getElementById("fundedLedgerHead");
   const receivingCount = document.getElementById("receivingAddressCount");
   const changeCount = document.getElementById("changeAddressCount");
   const fundedCount = document.getElementById("fundedAddressCount");
+  const receivingSnapshotCount = document.getElementById("receivingSnapshotCount");
+  const changeSnapshotCount = document.getElementById("changeSnapshotCount");
+  const fundedSnapshotCount = document.getElementById("fundedSnapshotCount");
+  const fundedSnapshotBalance = document.getElementById("fundedSnapshotBalance");
   const privacyDialog = document.getElementById("descriptorPrivacyDialog");
   const privacyOkButton = document.getElementById("descriptorPrivacyOk");
   const privacyCancelButton = document.getElementById("descriptorPrivacyCancel");
@@ -435,14 +446,25 @@ function initDescriptorPage({
     !loadingText ||
     !status ||
     !results ||
-    !resultsToggle ||
+    !toggleAllButton ||
     !resultsContent ||
     !receivingList ||
     !changeList ||
     !fundedList ||
+    !receivingPanel ||
+    !changePanel ||
+    !fundedPanel ||
+    !receivingToggle ||
+    !changeToggle ||
+    !fundedToggle ||
+    !fundedLedgerHead ||
     !receivingCount ||
     !changeCount ||
     !fundedCount ||
+    !receivingSnapshotCount ||
+    !changeSnapshotCount ||
+    !fundedSnapshotCount ||
+    !fundedSnapshotBalance ||
     !privacyDialog ||
     !privacyOkButton ||
     !privacyCancelButton ||
@@ -465,7 +487,30 @@ function initDescriptorPage({
   let activeUtxoAbortController = null;
   let activeUtxoButton = null;
   let utxoDialogState = null;
+  let openActionMenuTrigger = null;
   const renderedInputMetadata = new Map();
+  const sectionExpanded = {
+    funded: true,
+    receiving: true,
+    change: true,
+  };
+  const sections = {
+    funded: {
+      panel: fundedPanel,
+      toggle: fundedToggle,
+      content: [fundedLedgerHead, fundedList],
+    },
+    receiving: {
+      panel: receivingPanel,
+      toggle: receivingToggle,
+      content: [receivingList],
+    },
+    change: {
+      panel: changePanel,
+      toggle: changeToggle,
+      content: [changeList],
+    },
+  };
 
   const setStatus = (message = "", isError = false, isWarning = false) => {
     status.textContent = message;
@@ -490,10 +535,53 @@ function initDescriptorPage({
       }
     });
 
-  const setResultsExpanded = (expanded) => {
-    resultsToggle.setAttribute("aria-expanded", String(expanded));
-    resultsContent.hidden = !expanded;
+  const updateToggleAllButton = () => {
+    const allExpanded = Object.values(sectionExpanded).every(Boolean);
+    toggleAllButton.textContent = allExpanded ? "Collapse All" : "Expand All";
+    toggleAllButton.setAttribute(
+      "aria-label",
+      allExpanded ? "Collapse all address sections" : "Expand all address sections"
+    );
   };
+
+  const setSectionExpanded = (sectionName, expanded) => {
+    const section = sections[sectionName];
+    if (!section) return;
+    sectionExpanded[sectionName] = expanded;
+    section.toggle.setAttribute("aria-expanded", String(expanded));
+    section.panel.classList.toggle("collapsed", !expanded);
+    section.content.forEach((element) => {
+      element.hidden = !expanded;
+    });
+    updateToggleAllButton();
+  };
+
+  const setAllSectionsExpanded = (expanded) => {
+    Object.keys(sections).forEach((sectionName) => setSectionExpanded(sectionName, expanded));
+  };
+
+  const closeActionMenus = ({ restoreFocus = false } = {}) => {
+    const trigger = openActionMenuTrigger;
+    if (!trigger) return;
+    const panelId = trigger.getAttribute("aria-controls");
+    const panel = panelId ? document.getElementById(panelId) : null;
+    trigger.setAttribute("aria-expanded", "false");
+    if (panel) panel.hidden = true;
+    openActionMenuTrigger = null;
+    if (restoreFocus && trigger.isConnected) trigger.focus();
+  };
+
+  const setActionMenuExpanded = (trigger, expanded, focusFirst = false) => {
+    if (expanded && openActionMenuTrigger !== trigger) closeActionMenus();
+    const panel = document.getElementById(trigger.getAttribute("aria-controls"));
+    if (!panel) return;
+    trigger.setAttribute("aria-expanded", String(expanded));
+    panel.hidden = !expanded;
+    openActionMenuTrigger = expanded ? trigger : null;
+    if (expanded && focusFirst) panel.querySelector("button")?.focus();
+  };
+
+  Object.keys(sections).forEach((sectionName) => setSectionExpanded(sectionName, true));
 
   const restoreActiveUtxoButton = () => {
     if (activeUtxoButton?.isConnected) {
@@ -614,7 +702,7 @@ function initDescriptorPage({
     inputMetadata
   ) => {
     const row = document.createElement("div");
-    row.className = "descriptor-address-row";
+    row.className = `descriptor-address-row ${classification}`;
 
     const indexLabel = document.createElement("span");
     indexLabel.className = "descriptor-address-index";
@@ -642,7 +730,7 @@ function initDescriptorPage({
     copyButton.type = "button";
     copyButton.className = "descriptor-copy-button";
     copyButton.dataset.address = address;
-    copyButton.textContent = "Copy";
+    copyButton.textContent = "Copy Address";
     copyButton.setAttribute("aria-label", `Copy ${label} address at index ${index}`);
 
     const useButton = document.createElement("button");
@@ -652,7 +740,7 @@ function initDescriptorPage({
     useButton.textContent = "Use as Output";
     useButton.setAttribute("aria-label", `Use ${label} address at index ${index} as PSBT output`);
 
-    actions.append(copyButton, useButton);
+    let supportReason = null;
     if (classification === "funded") {
       const inputButton = document.createElement("button");
       inputButton.type = "button";
@@ -669,21 +757,48 @@ function initDescriptorPage({
           || "This descriptor output is not supported as a PSBT input.";
         inputButton.title = reason;
         inputButton.setAttribute("aria-label", `Unavailable: ${reason}`);
-        const supportReason = document.createElement("span");
+        supportReason = document.createElement("span");
         supportReason.className = "descriptor-input-support-reason";
         supportReason.textContent = reason;
-        actions.append(inputButton, supportReason);
       } else {
         renderedInputMetadata.set(address, inputMetadata);
-        actions.append(inputButton);
       }
+      actions.append(inputButton);
+    } else {
+      actions.append(useButton);
     }
+
+    const menuId = `descriptor-actions-${label}-${index}`;
+    const menuTrigger = document.createElement("button");
+    menuTrigger.type = "button";
+    menuTrigger.className = "descriptor-action-menu-trigger";
+    menuTrigger.textContent = "•••";
+    menuTrigger.dataset.defaultAriaLabel = `More actions for ${label} address at index ${index}`;
+    menuTrigger.setAttribute("aria-label", menuTrigger.dataset.defaultAriaLabel);
+    menuTrigger.setAttribute("aria-haspopup", "menu");
+    menuTrigger.setAttribute("aria-expanded", "false");
+    menuTrigger.setAttribute("aria-controls", menuId);
+
+    const menuPanel = document.createElement("div");
+    menuPanel.id = menuId;
+    menuPanel.className = "descriptor-action-menu-panel";
+    menuPanel.setAttribute("role", "menu");
+    menuPanel.hidden = true;
+    copyButton.setAttribute("role", "menuitem");
+    menuPanel.append(copyButton);
+    if (classification === "funded") {
+      useButton.setAttribute("role", "menuitem");
+      menuPanel.append(useButton);
+    }
+    actions.append(menuTrigger, menuPanel);
+    if (supportReason) actions.append(supportReason);
+
     const details = document.createElement("div");
     details.className = "descriptor-address-details";
     if (classification === "funded") details.append(branchBadge);
-    details.append(badge, balance);
+    details.append(badge);
 
-    row.append(indexLabel, details, value, actions);
+    row.append(indexLabel, details, value, balance, actions);
     return row;
   };
 
@@ -695,12 +810,17 @@ function initDescriptorPage({
   };
 
   const clearResults = () => {
+    closeActionMenus();
     receivingList.replaceChildren();
     changeList.replaceChildren();
     fundedList.replaceChildren();
     receivingCount.textContent = "0 unused";
     changeCount.textContent = "0 unused";
     fundedCount.textContent = "0 funded";
+    receivingSnapshotCount.textContent = "0";
+    changeSnapshotCount.textContent = "0";
+    fundedSnapshotCount.textContent = "0";
+    fundedSnapshotBalance.textContent = formatAddressBalance(0n);
     renderedInputMetadata.clear();
   };
 
@@ -710,6 +830,7 @@ function initDescriptorPage({
     let changeFundedCount = 0;
     let receivingUnusedCount = 0;
     let changeUnusedCount = 0;
+    let totalFundedSats = 0n;
     rows.forEach((row) => {
       const receiveClassification = classifyAddressActivity({
         balanceSats: row.receiveBalanceSats,
@@ -732,6 +853,7 @@ function initDescriptorPage({
           )
         );
         receivingFundedCount += 1;
+        totalFundedSats += row.receiveBalanceSats;
       } else if (receiveClassification === "unused" && receivingUnusedCount < targetUnusedCount) {
         receivingList.appendChild(
           createAddressRow(row.index, row.receiveAddress, 0n, "receiving", "unused")
@@ -750,6 +872,7 @@ function initDescriptorPage({
           )
         );
         changeFundedCount += 1;
+        totalFundedSats += row.changeBalanceSats;
       } else if (changeClassification === "unused" && changeUnusedCount < targetUnusedCount) {
         changeList.appendChild(
           createAddressRow(row.index, row.changeAddress, 0n, "change", "unused")
@@ -774,13 +897,17 @@ function initDescriptorPage({
     receivingCount.textContent = `${receivingUnusedCount} unused`;
     changeCount.textContent = `${changeUnusedCount} unused`;
     fundedCount.textContent = `${totalFundedCount} funded`;
+    receivingSnapshotCount.textContent = String(receivingUnusedCount);
+    changeSnapshotCount.textContent = String(changeUnusedCount);
+    fundedSnapshotCount.textContent = String(totalFundedCount);
+    fundedSnapshotBalance.textContent = formatAddressBalance(totalFundedSats);
     results.hidden = false;
-    setResultsExpanded(true);
     return {
       receivingFundedCount,
       changeFundedCount,
       receivingUnusedCount,
       changeUnusedCount,
+      totalFundedSats,
     };
   };
 
@@ -861,13 +988,28 @@ function initDescriptorPage({
     countInput.value = "20";
     clearResults();
     results.hidden = true;
-    setResultsExpanded(true);
     hasDerivationRequest = false;
     setLoading(false);
     setStatus();
   });
-  resultsToggle.addEventListener("click", () => {
-    setResultsExpanded(resultsToggle.getAttribute("aria-expanded") !== "true");
+  Object.entries(sections).forEach(([sectionName, section]) => {
+    section.toggle.addEventListener("click", () => {
+      setSectionExpanded(sectionName, section.toggle.getAttribute("aria-expanded") !== "true");
+    });
+  });
+  toggleAllButton.addEventListener("click", () => {
+    const allExpanded = Object.values(sectionExpanded).every(Boolean);
+    setAllSectionsExpanded(!allExpanded);
+  });
+  results.querySelectorAll(".descriptor-snapshot-tile").forEach((tile) => {
+    tile.addEventListener("click", () => {
+      const sectionName = tile.dataset.descriptorSection;
+      const section = sections[sectionName];
+      if (!section) return;
+      setSectionExpanded(sectionName, true);
+      section.panel.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      section.toggle.focus({ preventScroll: true });
+    });
   });
   networkSelect.addEventListener("change", () => {
     if (!hasDerivationRequest) return;
@@ -878,7 +1020,6 @@ function initDescriptorPage({
     activeAbortController = null;
     clearResults();
     results.hidden = true;
-    setResultsExpanded(true);
     hasDerivationRequest = false;
     setLoading(false);
     setStatus("Network changed. Click Derive Addresses and confirm the privacy warning to scan again.");
@@ -930,27 +1071,77 @@ function initDescriptorPage({
     utxoDialogState = null;
   });
   resultsContent.addEventListener("click", async (event) => {
+    const menuTrigger = event.target.closest?.(".descriptor-action-menu-trigger");
+    if (menuTrigger) {
+      setActionMenuExpanded(
+        menuTrigger,
+        menuTrigger.getAttribute("aria-expanded") !== "true"
+      );
+      return;
+    }
     const inputButton = event.target.closest?.(".descriptor-use-input-button");
     if (inputButton && !inputButton.disabled) {
+      closeActionMenus();
       void loadAddressUtxos(inputButton);
       return;
     }
     const useButton = event.target.closest?.(".descriptor-use-output-button");
     if (useButton) {
+      closeActionMenus();
       onUseAsOutput?.(useButton.dataset.address);
       return;
     }
     const button = event.target.closest?.(".descriptor-copy-button");
     if (!button) return;
+    const feedbackTrigger = button.closest(".descriptor-address-actions")
+      ?.querySelector(".descriptor-action-menu-trigger");
+    closeActionMenus();
     try {
       await navigator.clipboard.writeText(button.dataset.address);
-      button.textContent = "Copied!";
+      if (feedbackTrigger) {
+        feedbackTrigger.textContent = "✓";
+        feedbackTrigger.setAttribute("aria-label", "Address copied");
+      }
       window.setTimeout(() => {
-        button.textContent = "Copy";
+        if (feedbackTrigger?.isConnected) {
+          feedbackTrigger.textContent = "•••";
+          feedbackTrigger.setAttribute(
+            "aria-label",
+            feedbackTrigger.dataset.defaultAriaLabel
+          );
+        }
       }, 2000);
     } catch {
       setStatus("Failed to copy the address.", true);
     }
+  });
+  resultsContent.addEventListener("keydown", (event) => {
+    const trigger = event.target.closest?.(".descriptor-action-menu-trigger");
+    if (trigger && (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      setActionMenuExpanded(trigger, true, true);
+      return;
+    }
+    const panel = event.target.closest?.(".descriptor-action-menu-panel");
+    if (!panel || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = Array.from(panel.querySelectorAll("button:not(:disabled)"));
+    if (items.length === 0) return;
+    event.preventDefault();
+    const currentIndex = items.indexOf(document.activeElement);
+    let nextIndex;
+    if (event.key === "Home") nextIndex = 0;
+    else if (event.key === "End") nextIndex = items.length - 1;
+    else if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % items.length;
+    else nextIndex = (currentIndex - 1 + items.length) % items.length;
+    items[nextIndex].focus();
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.(".descriptor-address-actions")) closeActionMenus();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !openActionMenuTrigger) return;
+    event.preventDefault();
+    closeActionMenus({ restoreFocus: true });
   });
 }
 
